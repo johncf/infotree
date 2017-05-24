@@ -297,16 +297,15 @@ impl<L: Leaf> Cursor<L> {
         }
     }
 
-    // unsound: can be used to replace the node.
-    //pub fn current_mut(&mut self) -> &mut Node<L> {
-    //    match self.root {
-    //        Some(ref mut node) => node,
-    //        None => match self.steps.last_mut() {
-    //            Some(cstep) => &mut Arc::make_mut(&mut cstep.nodes)[cstep.idx],
-    //            None => unreachable!("Bad Cursor"),
-    //        }
-    //    }
-    //}
+    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
+        match self.root {
+            Some(ref mut node) => node.leaf_mut(),
+            None => match self.steps.last_mut() {
+                Some(cstep) => Arc::make_mut(&mut cstep.nodes)[cstep.idx].leaf_mut(),
+                None => unreachable!("Bad Cursor"),
+            }
+        }
+    }
 }
 
 impl<L: Leaf> From<Cursor<L>> for Node<L> {
