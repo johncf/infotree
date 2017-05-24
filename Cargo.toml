@@ -1,0 +1,7 @@
+[package]
+name = "left-tree"
+version = "0.1.0"
+authors = ["johncf <johncf@protonmail.com>"]
+
+[dependencies]
+arrayvec = "^0.3"
