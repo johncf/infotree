@@ -20,40 +20,40 @@ type AVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
 ///
 /// Note: `LeftTree` uses `Arc` for its CoW capability.
 #[derive(Clone)]
-pub struct LeftTree<I: Info, L: Leaf<I=I>> {
-    pub root: Option<Node<I, L>>,
-}
-
-/// The metadata that needs to be accumulated hierarchically over the tree.
-pub trait Info: Clone {
-    fn accumulate(&mut self, other: &Self);
+pub struct LeftTree<L: Leaf> {
+    pub root: Option<Node<L>>,
 }
 
 /// The leaves of a `LeftTree` should implement this trait.
 ///
 /// Note: If cloning a leaf is expensive, consider wrapping it in `Arc`.
 pub trait Leaf: Clone {
-    type I: Info;
+    type Info: Info;
 
-    fn compute_info(&self) -> Self::I;
+    fn compute_info(&self) -> Self::Info;
+}
+
+/// Metadata that need to be accumulated hierarchically over the tree.
+pub trait Info: Clone {
+    fn accumulate(&mut self, other: &Self);
 }
 
 #[derive(Clone)]
-pub enum Node<I: Info, L: Leaf<I=I>> {
-    Internal(InternalVal<I, L>),
-    Leaf(LeafVal<I, L>),
+pub enum Node<L: Leaf> {
+    Internal(InternalVal<L>),
+    Leaf(LeafVal<L>),
 }
 
 #[derive(Clone)]
-pub struct InternalVal<I: Info, L: Leaf<I=I>> {
-    info: I,
+pub struct InternalVal<L: Leaf> {
+    info: L::Info,
     height: usize, // > 0
-    val: Arc<AVec<Node<I, L>>>,
+    val: Arc<AVec<Node<L>>>,
 }
 
 #[derive(Clone)]
-pub struct LeafVal<I: Info, L: Leaf<I=I>> {
-    info: I,
+pub struct LeafVal<L: Leaf> {
+    info: L::Info,
     val: L,
 }
 
@@ -67,8 +67,8 @@ impl Info for usize {
     }
 }
 
-impl<I: Info, L: Leaf<I=I>> Node<I, L> {
-    pub fn from_leaf(leaf: L) -> Node<I, L> {
+impl<L: Leaf> Node<L> {
+    pub fn from_leaf(leaf: L) -> Node<L> {
         Node::Leaf(LeafVal {
             info: leaf.compute_info(),
             val: leaf,
@@ -76,7 +76,7 @@ impl<I: Info, L: Leaf<I=I>> Node<I, L> {
     }
 
     /// All nodes should be at the same height, panics otherwise.
-    pub fn from_nodes(nodes: AVec<Node<I, L>>) -> Node<I, L> {
+    pub fn from_nodes(nodes: AVec<Node<L>>) -> Node<L> {
         let height = nodes[0].height() + 1;
         let mut info = nodes[0].info().clone();
         for child in &nodes[1..] {
@@ -91,7 +91,7 @@ impl<I: Info, L: Leaf<I=I>> Node<I, L> {
     }
 
     /// Returns the accumulated info for this node.
-    pub fn info(&self) -> &I {
+    pub fn info(&self) -> &L::Info {
         match *self {
             Node::Internal(InternalVal { ref info, .. })
                 | Node::Leaf(LeafVal { ref info, .. }) => info,
@@ -105,7 +105,7 @@ impl<I: Info, L: Leaf<I=I>> Node<I, L> {
         }
     }
 
-    pub fn get_children(&self) -> &[Node<I, L>] {
+    pub fn get_children(&self) -> &[Node<L>] {
         match *self {
             Node::Internal(ref int) => &*int.val,
             Node::Leaf(_) => panic!("get_children called on a leaf node"),
@@ -121,14 +121,14 @@ impl<I: Info, L: Leaf<I=I>> Node<I, L> {
         }
     }
 
-    fn merge_two(node1: Node<I, L>, node2: Node<I, L>) -> Node<I, L> {
+    fn merge_two(node1: Node<L>, node2: Node<L>) -> Node<L> {
         let mut nodes = AVec::new();
         nodes.push(node1);
         nodes.push(node2);
         Node::from_nodes(nodes)
     }
 
-    fn merge_nodes(children1: &[Node<I, L>], children2: &[Node<I, L>]) -> Node<I, L> {
+    fn merge_nodes(children1: &[Node<L>], children2: &[Node<L>]) -> Node<L> {
         let n_children = children1.len() + children2.len();
         let mut iter = children1.iter().chain(children2).cloned();
         if n_children <= MAX_CHILDREN {
@@ -144,7 +144,7 @@ impl<I: Info, L: Leaf<I=I>> Node<I, L> {
     }
 
     /// Concatenates two nodes of possibly different heights into a single node.
-    pub fn concat(node1: Node<I, L>, node2: Node<I, L>) -> Node<I, L> {
+    pub fn concat(node1: Node<L>, node2: Node<L>) -> Node<L> {
         let h1 = node1.height();
         let h2 = node2.height();
 
@@ -187,12 +187,12 @@ impl<I: Info, L: Leaf<I=I>> Node<I, L> {
     }
 }
 
-impl<I: Info, L: Leaf<I=I>> LeftTree<I, L> {
-    pub fn new() -> LeftTree<I, L> {
+impl<L: Leaf> LeftTree<L> {
+    pub fn new() -> LeftTree<L> {
         LeftTree { root: None }
     }
 
-    pub fn push_back(&mut self, node: Node<I, L>) {
+    pub fn push_back(&mut self, node: Node<L>) {
         let root = match self.root.take() {
             Some(root) => Node::concat(root, node),
             None => node,
@@ -200,7 +200,7 @@ impl<I: Info, L: Leaf<I=I>> LeftTree<I, L> {
         self.root = Some(root);
     }
 
-    pub fn push_front(&mut self, node: Node<I, L>) {
+    pub fn push_front(&mut self, node: Node<L>) {
         let root = match self.root.take() {
             Some(root) => Node::concat(node, root),
             None => node,
@@ -209,7 +209,7 @@ impl<I: Info, L: Leaf<I=I>> LeftTree<I, L> {
     }
 
     //pub fn walk<T>(&self, f: F, ctx) -> Option<T> where F: FnMut(node, ctx) -> Action<T> {}
-    //pub fn walk_split(&mut self, f: F, ctx) -> LeftTree<I, L> where F: FnMut(node, ctx) -> Action<Split> {}
+    //pub fn walk_split(&mut self, f: F, ctx) -> LeftTree<L> where F: FnMut(node, ctx) -> Action<Split> {}
 }
 
 #[cfg(test)]
@@ -220,21 +220,21 @@ mod tests {
     struct TestLeaf(usize);
 
     impl Leaf for TestLeaf {
-        type I = usize;
+        type Info = usize;
         fn compute_info(&self) -> usize {
             self.0
         }
     }
 
-    fn root_of<I: Info, L: Leaf<I=I>>(tree: &LeftTree<I, L>) -> &Node<I, L> {
+    fn root_of<L: Leaf>(tree: &LeftTree<L>) -> &Node<L> {
         tree.root.as_ref().unwrap()
     }
 
-    fn info_of<I: Info, L: Leaf<I=I>>(tree: &LeftTree<I, L>) -> &I {
+    fn info_of<L: Leaf>(tree: &LeftTree<L>) -> &L::Info {
         root_of(&tree).info()
     }
 
-    fn height_of<I: Info, L: Leaf<I=I>>(tree: &LeftTree<I, L>) -> usize {
+    fn height_of<L: Leaf>(tree: &LeftTree<L>) -> usize {
         root_of(&tree).height()
     }
 
