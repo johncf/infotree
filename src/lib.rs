@@ -14,9 +14,14 @@ use arrayvec::ArrayVec;
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
 
-type AVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
+type NVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
 
 /// The main B-Tree-like data structure.
+///
+/// LeftTree is a self-balancing data structure similar to B-Tree, except that each element in a
+/// node has exactly one child (as opposed to a node having n elements and n+1 children). Another
+/// difference is that data is stored in leaf nodes, similar to a B+Tree; but unlike B+Trees, there
+/// are no direct links between leaf nodes.
 ///
 /// Note: `LeftTree` uses `Arc` for its CoW capability.
 #[derive(Clone)]
@@ -48,7 +53,7 @@ pub enum Node<L: Leaf> {
 pub struct InternalVal<L: Leaf> {
     info: L::Info,
     height: usize, // > 0
-    val: Arc<AVec<Node<L>>>,
+    val: Arc<NVec<Node<L>>>,
 }
 
 #[derive(Clone)]
@@ -67,6 +72,30 @@ impl Info for usize {
     }
 }
 
+use std::ops::{Deref, DerefMut};
+
+pub struct LeafMut<'a, L: 'a + Leaf>(&'a mut LeafVal<L>);
+
+impl<'a, L: Leaf> Deref for LeafMut<'a, L> {
+    type Target = L;
+
+    fn deref(&self) -> &L {
+        &self.0.val
+    }
+}
+
+impl<'a, L: Leaf> DerefMut for LeafMut<'a, L> {
+    fn deref_mut(&mut self) -> &mut L {
+        &mut self.0.val
+    }
+}
+
+impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
+    fn drop(&mut self) {
+        self.0.info = self.0.val.compute_info();
+    }
+}
+
 impl<L: Leaf> Node<L> {
     pub fn from_leaf(leaf: L) -> Node<L> {
         Node::Leaf(LeafVal {
@@ -76,7 +105,7 @@ impl<L: Leaf> Node<L> {
     }
 
     /// All nodes should be at the same height, panics otherwise.
-    pub fn from_nodes(nodes: AVec<Node<L>>) -> Node<L> {
+    pub fn from_nodes(nodes: Arc<NVec<Node<L>>>) -> Node<L> {
         let height = nodes[0].height() + 1;
         let mut info = nodes[0].info().clone();
         for child in &nodes[1..] {
@@ -86,7 +115,7 @@ impl<L: Leaf> Node<L> {
         Node::Internal(InternalVal {
             info: info,
             height: height,
-            val: Arc::new(nodes),
+            val: nodes,
         })
     }
 
@@ -105,16 +134,35 @@ impl<L: Leaf> Node<L> {
         }
     }
 
-    pub fn get_children(&self) -> &[Node<L>] {
+    /// Get the child nodes of this node. If this is a leaf node, this will return an empty slice.
+    ///
+    /// Note that internal nodes always contain at least one child node.
+    pub fn children(&self) -> &[Node<L>] {
         match *self {
             Node::Internal(ref int) => &*int.val,
-            Node::Leaf(_) => panic!("get_children called on a leaf node"),
+            Node::Leaf(_) => &[],
         }
     }
 
-    /// For an `Internal` node, this returns whether the number of nodes is `>= 8`. For a `Leaf`
-    /// node, this always returns `true`.
-    pub fn has_min_size(&self) -> bool {
+    /// Get the leaf value if this is a leaf node, otherwise return `None`.
+    pub fn leaf(&self) -> Option<&L> {
+        match *self {
+            Node::Internal(_) => None,
+            Node::Leaf(ref leaf) => Some(&leaf.val),
+        }
+    }
+
+    /// Get a mutable reference to the leaf value if this is a leaf node, otherwise return `None`.
+    ///
+    /// When `LeafMut` gets dropped, it will update the internal info field.
+    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
+        match self {
+            &mut Node::Internal(_) => None,
+            &mut Node::Leaf(ref mut leaf) => Some(LeafMut(leaf)),
+        }
+    }
+
+    fn has_min_size(&self) -> bool {
         match *self {
             Node::Internal(ref int) => int.val.len() >= MIN_CHILDREN,
             Node::Leaf(_) => true,
@@ -122,23 +170,23 @@ impl<L: Leaf> Node<L> {
     }
 
     fn merge_two(node1: Node<L>, node2: Node<L>) -> Node<L> {
-        let mut nodes = AVec::new();
+        let mut nodes = NVec::new();
         nodes.push(node1);
         nodes.push(node2);
-        Node::from_nodes(nodes)
+        Node::from_nodes(Arc::new(nodes))
     }
 
     fn merge_nodes(children1: &[Node<L>], children2: &[Node<L>]) -> Node<L> {
         let n_children = children1.len() + children2.len();
         let mut iter = children1.iter().chain(children2).cloned();
         if n_children <= MAX_CHILDREN {
-            Node::from_nodes(iter.collect())
+            Node::from_nodes(Arc::new(iter.collect()))
         } else {
             debug_assert!(n_children <= 2 * MAX_CHILDREN);
             // Note: Splitting at midpoint is another option
             let splitpoint = (2 * MAX_CHILDREN + n_children) / 4;
-            let left = Node::from_nodes(iter.by_ref().take(splitpoint).collect());
-            let right = Node::from_nodes(iter.collect());
+            let left = Node::from_nodes(Arc::new(iter.by_ref().take(splitpoint).collect()));
+            let right = Node::from_nodes(Arc::new(iter.collect()));
             Node::merge_two(left, right)
         }
     }
@@ -150,7 +198,7 @@ impl<L: Leaf> Node<L> {
 
         match h1.cmp(&h2) {
             cmp::Ordering::Less => {
-                let children2 = node2.get_children();
+                let children2 = node2.children();
                 if h1 == h2 - 1 && node1.has_min_size() {
                     Node::merge_nodes(&[node1], children2)
                 } else {
@@ -158,7 +206,7 @@ impl<L: Leaf> Node<L> {
                     if newnode.height() == h2 - 1 {
                         Node::merge_nodes(&[newnode], &children2[1..])
                     } else { // newnode.height() == h2
-                        Node::merge_nodes(newnode.get_children(), &children2[1..])
+                        Node::merge_nodes(newnode.children(), &children2[1..])
                     }
                 }
             },
@@ -166,11 +214,11 @@ impl<L: Leaf> Node<L> {
                 if node1.has_min_size() && node2.has_min_size() {
                     Node::merge_two(node1, node2)
                 } else {
-                    Node::merge_nodes(node1.get_children(), node2.get_children())
+                    Node::merge_nodes(node1.children(), node2.children())
                 }
             },
             cmp::Ordering::Greater => {
-                let children1 = node1.get_children();
+                let children1 = node1.children();
                 if h2 == h1 - 1 && node2.has_min_size() {
                     Node::merge_nodes(children1, &[node2])
                 } else {
@@ -179,7 +227,7 @@ impl<L: Leaf> Node<L> {
                     if newnode.height() == h1 - 1 {
                         Node::merge_nodes(&children1[..lastix], &[newnode])
                     } else {
-                        Node::merge_nodes(&children1[..lastix], newnode.get_children())
+                        Node::merge_nodes(&children1[..lastix], newnode.children())
                     }
                 }
             }
@@ -207,9 +255,77 @@ impl<L: Leaf> LeftTree<L> {
         };
         self.root = Some(root);
     }
+}
 
-    //pub fn walk<T>(&self, f: F, ctx) -> Option<T> where F: FnMut(node, ctx) -> Action<T> {}
-    //pub fn walk_split(&mut self, f: F, ctx) -> LeftTree<L> where F: FnMut(node, ctx) -> Action<Split> {}
+impl<L: Leaf> From<Node<L>> for LeftTree<L> {
+    fn from(node: Node<L>) -> LeftTree<L> {
+        LeftTree { root: Some(node) }
+    }
+}
+
+// Maximum height of tree that can be handled by the cursor.
+// => Maximum number of elements = MAX_CHILDREN^CURSOR_P2R_SIZE = 16^8 = 2^32
+const CURSOR_MAX_HT: usize = 8;
+
+type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
+
+struct CursorStep<L: Leaf> {
+    nodes: Arc<NVec<Node<L>>>,
+    idx: usize, // index at which cursor descended
+}
+
+pub struct Cursor<L: Leaf> {
+    root: Option<Node<L>>,
+    steps: CVec<CursorStep<L>>,
+}
+
+impl<L: Leaf> Cursor<L> {
+    pub fn new(node: Node<L>) -> Cursor<L> {
+        Cursor {
+            root: Some(node),
+            steps: CVec::new(),
+        }
+    }
+
+    pub fn current(&self) -> &Node<L> {
+        match self.root {
+            Some(ref node) => node,
+            None => match self.steps.last() {
+                Some(cstep) => &cstep.nodes[cstep.idx],
+                None => unreachable!("Bad Cursor"),
+            }
+        }
+    }
+
+    // unsound: can be used to replace the node.
+    //pub fn current_mut(&mut self) -> &mut Node<L> {
+    //    match self.root {
+    //        Some(ref mut node) => node,
+    //        None => match self.steps.last_mut() {
+    //            Some(cstep) => &mut Arc::make_mut(&mut cstep.nodes)[cstep.idx],
+    //            None => unreachable!("Bad Cursor"),
+    //        }
+    //    }
+    //}
+}
+
+impl<L: Leaf> From<Cursor<L>> for Node<L> {
+    fn from(mut cur: Cursor<L>) -> Node<L> {
+        match cur.root {
+            Some(node) => node,
+            None => match cur.steps.pop() {
+                Some(CursorStep { nodes, .. }) => {
+                    let mut root = Node::from_nodes(nodes);
+                    for CursorStep { mut nodes, idx } in cur.steps.into_iter().rev() {
+                        Arc::make_mut(&mut nodes)[idx] = root;
+                        root = Node::from_nodes(nodes)
+                    }
+                    root
+                }
+                None => unreachable!("Bad Cursor"),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
