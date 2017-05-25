@@ -18,12 +18,12 @@ const MAX_CHILDREN: usize = 16;
 
 type NVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
 
-/// The main B-Tree-like data structure.
+/// A self-balancing B-Tree-like data structure.
 ///
-/// LeftTree is a self-balancing data structure similar to B-Tree, except that each element in a
-/// node has exactly one child (as opposed to a node having n elements and n+1 children). Another
-/// difference is that data is stored in leaf nodes, similar to a B+Tree; but unlike B+Trees, there
-/// are no direct links between leaf nodes.
+/// LeftTree is a self-balancing data structure similar to B-Tree, except that each element in an
+/// internal node corresponds to exactly one branch (as opposed to having k elements and k+1
+/// branches). Another difference is that data is stored in leaf nodes similar to a B+Tree; but
+/// unlike B+Trees, there are no direct links between leaf nodes.
 ///
 /// Note: `LeftTree` uses `Arc` for its CoW capability.
 #[derive(Clone)]
@@ -45,19 +45,22 @@ pub trait Info: Clone {
     fn accumulate(&mut self, other: &Self);
 }
 
+/// A `LeftTree` node.
 #[derive(Clone)]
 pub enum Node<L: Leaf> {
     Internal(InternalVal<L>),
     Leaf(LeafVal<L>),
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct InternalVal<L: Leaf> {
     info: L::Info,
     height: usize, // > 0
-    val: Arc<NVec<Node<L>>>,
+    nodes: Arc<NVec<Node<L>>>,
 }
 
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct LeafVal<L: Leaf> {
     info: L::Info,
@@ -76,6 +79,9 @@ impl Info for usize {
 
 use std::ops::{Deref, DerefMut};
 
+/// A wrapper type for a mutably borrowed leaf from a `Node`.
+///
+/// When `LeafMut` gets dropped, it will update the `Node` to reflect changes in info.
 pub struct LeafMut<'a, L: 'a + Leaf>(&'a mut LeafVal<L>);
 
 impl<'a, L: Leaf> Deref for LeafMut<'a, L> {
@@ -114,11 +120,7 @@ impl<L: Leaf> Node<L> {
             assert_eq!(height, child.height() + 1);
             info.accumulate(&child.info());
         }
-        Node::Internal(InternalVal {
-            info: info,
-            height: height,
-            val: nodes,
-        })
+        Node::Internal(InternalVal { info, height, nodes })
     }
 
     /// Returns the accumulated info for this node.
@@ -141,7 +143,7 @@ impl<L: Leaf> Node<L> {
     /// Note that internal nodes always contain at least one child node.
     pub fn children(&self) -> &[Node<L>] {
         match *self {
-            Node::Internal(ref int) => &*int.val,
+            Node::Internal(ref int) => &*int.nodes,
             Node::Leaf(_) => &[],
         }
     }
@@ -155,8 +157,6 @@ impl<L: Leaf> Node<L> {
     }
 
     /// Get a mutable reference to the leaf value if this is a leaf node, otherwise return `None`.
-    ///
-    /// When `LeafMut` gets dropped, it will update the internal info field.
     pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
         match self {
             &mut Node::Internal(_) => None,
@@ -174,7 +174,7 @@ impl<L: Leaf> Node<L> {
         match self {
             &Node::Internal(ref int) => {
                 let mut idx = 0;
-                for node in &*int.val {
+                for node in &*int.nodes {
                     let mut next = cur.clone();
                     next.accumulate(node.info());
                     if let Some(x) = f(idx, cur, Some(next.clone())) {
@@ -191,7 +191,7 @@ impl<L: Leaf> Node<L> {
 
     fn has_min_size(&self) -> bool {
         match *self {
-            Node::Internal(ref int) => int.val.len() >= MIN_CHILDREN,
+            Node::Internal(ref int) => int.nodes.len() >= MIN_CHILDREN,
             Node::Leaf(_) => true,
         }
     }
@@ -218,7 +218,7 @@ impl<L: Leaf> Node<L> {
         }
     }
 
-    /// Concatenates two nodes of possibly different heights into a single node.
+    /// Concatenates two nodes of possibly different heights into a single balanced node.
     pub fn concat(node1: Node<L>, node2: Node<L>) -> Node<L> {
         let h1 = node1.height();
         let h2 = node2.height();
@@ -232,7 +232,8 @@ impl<L: Leaf> Node<L> {
                     let newnode = Node::concat(node1, children2[0].clone());
                     if newnode.height() == h2 - 1 {
                         Node::merge_nodes(&[newnode], &children2[1..])
-                    } else { // newnode.height() == h2
+                    } else {
+                        debug_assert_eq!(newnode.height(), h2);
                         Node::merge_nodes(newnode.children(), &children2[1..])
                     }
                 }
@@ -254,6 +255,7 @@ impl<L: Leaf> Node<L> {
                     if newnode.height() == h1 - 1 {
                         Node::merge_nodes(&children1[..lastix], &[newnode])
                     } else {
+                        debug_assert_eq!(newnode.height(), h1);
                         Node::merge_nodes(&children1[..lastix], newnode.children())
                     }
                 }
