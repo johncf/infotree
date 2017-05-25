@@ -172,10 +172,8 @@ impl<L: Leaf> Node<L> {
     }
 
     /// Traverse this node conditioned on a callback which is provided with accumulated info from
-    /// left to right.
-    ///
-    /// Panics if called on a leaf.
-    pub fn accu_info_by<T, F>(&self, start: L::Info, mut f: F) -> Option<T>
+    /// left to right. Returns `Err(())` if called on a leaf.
+    pub fn accu_info_by<T, F>(&self, start: L::Info, mut f: F) -> Result<Option<T>, ()>
         where F: FnMut(usize, L::Info, Option<L::Info>) -> Option<T>
     {
         let mut cur = start;
@@ -186,21 +184,22 @@ impl<L: Leaf> Node<L> {
                     let mut next = cur.clone();
                     next.accumulate(node.info());
                     if let Some(x) = f(idx, cur, Some(next.clone())) {
-                        return Some(x);
+                        return Ok(Some(x));
                     }
                     cur = next;
                     idx += 1;
                 }
-                f(idx, cur, None)
+                Ok(f(idx, cur, None))
             }
-            &Node::Leaf(_) => panic!("accu_info_by called on a leaf."),
+            &Node::Leaf(_) => Err(()),
         }
     }
 
-    // Returns `Ok(index, accu_info)` of the node for which `f` returned `Ok(true)`. If all
-    // `Ok(false)`, returns `Ok(index, accu_info)` for the last child in the node.
-    fn accu_info_with_default_end<F, E>(&self, start: L::Info, f: &mut F) -> Result<(usize, L::Info), E>
-        where F: FnMut(L::Info, L::Info) -> Result<bool, E>
+    // Returns `(index, accu_info)` of the node at which `f` returned `true`. If all were `false`,
+    // this returns `(index, accu_info)` of the last child in the node. Returns `Err` if called on
+    // a leaf node.
+    fn accu_info_with_default_end<F>(&self, start: L::Info, mut f: F) -> Result<(usize, L::Info), ()>
+        where F: FnMut(L::Info, L::Info) -> bool
     {
         let mut info = start;
         self.accu_info_by(info.clone(),
@@ -209,15 +208,14 @@ impl<L: Leaf> Node<L> {
                                   Some(info_end) => {
                                       info = info_beg.clone();
                                       match f(info_beg, info_end) {
-                                          Ok(true) => Some(Ok(idx)),
-                                          Ok(false) => None,
-                                          Err(e) => Some(Err(e))
+                                          true => Some(idx),
+                                          false => None,
                                       }
                                   }
-                                  None => Some(Ok(idx - 1)), // the "default_end"
+                                  None => Some(idx - 1), // the "default_end"
                               }
                           })
-            .unwrap().map(|idx| (idx, info))
+            .map(|idx| (idx.unwrap(), info))
     }
 
     fn children_raw(&self) -> &Arc<NVec<Node<L>>> {
