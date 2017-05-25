@@ -1,6 +1,6 @@
 [package]
-name = "left-tree"
-version = "0.1.0"
+name = "unitree"
+version = "0.0.1"
 authors = ["johncf <johncf@protonmail.com>"]
 
 [dependencies]

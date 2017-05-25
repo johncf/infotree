@@ -20,18 +20,18 @@ type NVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
 
 /// A self-balancing B-Tree-like data structure.
 ///
-/// LeftTree is a self-balancing data structure similar to B-Tree, except that each element in an
+/// UniTree is a self-balancing data structure similar to B-Tree, except that each element in an
 /// internal node corresponds to exactly one branch (as opposed to having k elements and k+1
 /// branches). Another difference is that data is stored in leaf nodes similar to a B+Tree; but
 /// unlike B+Trees, there are no direct links between leaf nodes.
 ///
-/// Note: `LeftTree` uses `Arc` for its CoW capability.
+/// Note: `UniTree` uses `Arc` for its CoW capability.
 #[derive(Clone)]
-pub struct LeftTree<L: Leaf> {
+pub struct UniTree<L: Leaf> {
     pub root: Option<Node<L>>,
 }
 
-/// The leaves of a `LeftTree` should implement this trait.
+/// The leaves of a `UniTree` should implement this trait.
 ///
 /// Note: If cloning a leaf is expensive, consider wrapping it in `Arc`.
 pub trait Leaf: Clone {
@@ -45,7 +45,7 @@ pub trait Info: Clone {
     fn accumulate(&mut self, other: &Self);
 }
 
-/// A `LeftTree` node.
+/// A `UniTree` node.
 #[derive(Clone)]
 pub enum Node<L: Leaf> {
     Internal(InternalVal<L>),
@@ -264,9 +264,9 @@ impl<L: Leaf> Node<L> {
     }
 }
 
-impl<L: Leaf> LeftTree<L> {
-    pub fn new() -> LeftTree<L> {
-        LeftTree { root: None }
+impl<L: Leaf> UniTree<L> {
+    pub fn new() -> UniTree<L> {
+        UniTree { root: None }
     }
 
     pub fn push_back(&mut self, node: Node<L>) {
@@ -286,9 +286,9 @@ impl<L: Leaf> LeftTree<L> {
     }
 }
 
-impl<L: Leaf> From<Node<L>> for LeftTree<L> {
-    fn from(node: Node<L>) -> LeftTree<L> {
-        LeftTree { root: Some(node) }
+impl<L: Leaf> From<Node<L>> for UniTree<L> {
+    fn from(node: Node<L>) -> UniTree<L> {
+        UniTree { root: Some(node) }
     }
 }
 
@@ -306,21 +306,21 @@ mod tests {
         }
     }
 
-    fn root_of<L: Leaf>(tree: &LeftTree<L>) -> &Node<L> {
+    fn root_of<L: Leaf>(tree: &UniTree<L>) -> &Node<L> {
         tree.root.as_ref().unwrap()
     }
 
-    fn info_of<L: Leaf>(tree: &LeftTree<L>) -> &L::Info {
+    fn info_of<L: Leaf>(tree: &UniTree<L>) -> &L::Info {
         root_of(&tree).info()
     }
 
-    fn height_of<L: Leaf>(tree: &LeftTree<L>) -> usize {
+    fn height_of<L: Leaf>(tree: &UniTree<L>) -> usize {
         root_of(&tree).height()
     }
 
     #[test]
     fn basics() {
-        let mut tree = LeftTree::new();
+        let mut tree = UniTree::new();
         tree.push_back(Node::from_leaf(TestLeaf(1)));
         assert_eq!(height_of(&tree), 0);
         assert_eq!(*info_of(&tree), 1);
