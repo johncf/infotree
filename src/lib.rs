@@ -210,9 +210,9 @@ impl<L: Leaf> Node<L> {
             Node::from_nodes(Arc::new(iter.collect()))
         } else {
             debug_assert!(n_children <= 2 * MAX_CHILDREN);
-            // Note: Splitting at midpoint is another option
-            let splitpoint = (2 * MAX_CHILDREN + n_children) / 4;
-            let left = Node::from_nodes(Arc::new(iter.by_ref().take(splitpoint).collect()));
+            // Make left heavy. Splitting at midpoint is another option
+            let n_left = cmp::min(n_children - MIN_CHILDREN, MAX_CHILDREN);
+            let left = Node::from_nodes(Arc::new(iter.by_ref().take(n_left).collect()));
             let right = Node::from_nodes(Arc::new(iter.collect()));
             Node::merge_two(left, right)
         }
