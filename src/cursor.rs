@@ -59,6 +59,17 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         self.steps.len()
     }
 
+    pub fn reset(&mut self) {
+        self.steps.clear();
+    }
+
+    pub fn ascend(&mut self) -> Result<(), ()> {
+        match self.steps.pop() {
+            Some(_) => Ok(()),
+            None => Err(()),
+        }
+    }
+
     /// Recursively descend the tree while accumulating info. It descends the child on which `f`
     /// returned `Ok(true)`, keeps iterating the current node as long as `f` returns `Ok(false)`,
     /// and descends the last child if `f` returned `Ok(false)` for all children.
@@ -103,8 +114,26 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         self.node().leaf().unwrap()
     }
 
-    pub fn reset(&mut self) {
-        self.steps.clear();
+    /// If the current node is a leaf, try to fetch the next leaf in order, otherwise it calls
+    /// `first_leaf_below`.
+    pub fn next_leaf(&mut self) -> Option<&'a L> {
+        match self.node().leaf() {
+            None => Some(self.first_leaf_below()),
+            Some(_) => { // TODO
+                unimplemented!()
+            }
+        }
+    }
+
+    /// If the current node is a leaf, try to fetch the next leaf in order, otherwise it calls
+    /// `last_leaf_below`.
+    pub fn prev_leaf(&mut self) -> Option<&'a L> {
+        match self.node().leaf() {
+            None => Some(self.last_leaf_below()),
+            Some(_) => { // TODO
+                unimplemented!()
+            }
+        }
     }
 }
 
