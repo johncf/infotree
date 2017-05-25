@@ -171,10 +171,11 @@ impl<L: Leaf> Node<L> {
         }
     }
 
-    /// Search within this node using accumulated info from left to right.
+    /// Traverse this node conditioned on a callback which is provided with accumulated info from
+    /// left to right.
     ///
     /// Panics if called on a leaf.
-    pub fn accu_info_search<T, F>(&self, start: L::Info, mut f: F) -> Option<T>
+    pub fn accu_info_by<T, F>(&self, start: L::Info, mut f: F) -> Option<T>
         where F: FnMut(usize, L::Info, Option<L::Info>) -> Option<T>
     {
         let mut cur = start;
@@ -192,8 +193,31 @@ impl<L: Leaf> Node<L> {
                 }
                 f(idx, cur, None)
             }
-            &Node::Leaf(_) => panic!("accu_info_search called on a leaf."),
+            &Node::Leaf(_) => panic!("accu_info_by called on a leaf."),
         }
+    }
+
+    // Returns `Ok(index, accu_info)` of the node for which `f` returned `Ok(true)`. If all
+    // `Ok(false)`, returns `Ok(index, accu_info)` for the last child in the node.
+    fn accu_info_with_default_end<F, E>(&self, start: L::Info, f: &mut F) -> Result<(usize, L::Info), E>
+        where F: FnMut(L::Info, L::Info) -> Result<bool, E>
+    {
+        let mut info = start;
+        self.accu_info_by(info.clone(),
+                          |idx, info_beg, info_end| {
+                              match info_end {
+                                  Some(info_end) => {
+                                      info = info_beg.clone();
+                                      match f(info_beg, info_end) {
+                                          Ok(true) => Some(Ok(idx)),
+                                          Ok(false) => None,
+                                          Err(e) => Some(Err(e))
+                                      }
+                                  }
+                                  None => Some(Ok(idx - 1)), // the "default_end"
+                              }
+                          })
+            .unwrap().map(|idx| (idx, info))
     }
 
     fn children_raw(&self) -> &Arc<NVec<Node<L>>> {

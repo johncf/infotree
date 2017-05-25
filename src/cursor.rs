@@ -73,38 +73,22 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     pub fn recursive_descend<F, E>(&mut self, mut f: F) -> Result<(), E>
         where F: FnMut(L::Info, L::Info) -> Result<bool, E>
     {
-        let mut cur_info = self.info().clone();
         loop {
+            let cur_info = self.info().clone();
             let cur_node: &'a Node<L> = self.node();
             if cur_node.is_leaf() { return Ok(()); }
-            let search_res = cur_node.accu_info_search(
-                cur_info.clone(),
-                |idx, info_beg, info_end| {
-                    match info_end {
-                        Some(info_end) => {
-                            cur_info = info_beg.clone();
-                            match f(info_beg, info_end) {
-                                Ok(true) => Some(Ok(idx)),
-                                Ok(false) => None,
-                                Err(e) => Some(Err(e))
-                            }
-                        }
-                        None => Some(Ok(idx - 1)),
-                    }
-                });
-            match search_res {
-                Some(Ok(idx)) => {
+            match cur_node.accu_info_with_default_end(cur_info, &mut f) {
+                Ok((idx, next_info)) => {
                     // ArrayVec::push(e) returns Some(e) on overflow!
                     if self.steps.push(CursorStep {
                                            nodes: cur_node.children_raw(),
                                            idx: idx,
-                                           info: cur_info.clone(),
+                                           info: next_info,
                                        }).is_some() {
                         panic!("Depth greater than 8!") // likely to OOM before this happens
                     }
                 }
-                Some(Err(e)) => return Err(e),
-                None => unreachable!(),
+                Err(e) => return Err(e),
             }
         }
     }
