@@ -107,9 +107,9 @@ impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
 impl<L: Leaf> Node<L> {
     pub fn from_leaf(leaf: L) -> Node<L> {
         Node::Leaf(LeafVal {
-            info: leaf.compute_info(),
-            val: leaf,
-        })
+                       info: leaf.compute_info(),
+                       val: leaf,
+                   })
     }
 
     /// All nodes should be at the same height, panics otherwise.
@@ -135,6 +135,13 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(ref int) => int.height,
             Node::Leaf(_) => 0,
+        }
+    }
+
+    pub fn is_leaf(&self) -> bool {
+        match *self {
+            Node::Internal(_) => false,
+            Node::Leaf(_) => true,
         }
     }
 
@@ -167,7 +174,7 @@ impl<L: Leaf> Node<L> {
     /// Search within this node using accumulated info from left to right.
     ///
     /// Panics if called on a leaf.
-    pub fn accu_info_search<T, F>(&self, mut f: F, start: L::Info) -> Option<T>
+    pub fn accu_info_search<T, F>(&self, start: L::Info, mut f: F) -> Option<T>
         where F: FnMut(usize, L::Info, Option<L::Info>) -> Option<T>
     {
         let mut cur = start;
@@ -186,6 +193,13 @@ impl<L: Leaf> Node<L> {
                 f(idx, cur, None)
             }
             &Node::Leaf(_) => panic!("accu_info_search called on a leaf."),
+        }
+    }
+
+    fn children_raw(&self) -> &Arc<NVec<Node<L>>> {
+        match *self {
+            Node::Internal(ref int) => &int.nodes,
+            Node::Leaf(_) => panic!("children_raw called on a leaf."),
         }
     }
 
@@ -296,8 +310,8 @@ impl<L: Leaf> From<Node<L>> for UniTree<L> {
 mod tests {
     use super::*;
 
-    #[derive(Clone)]
-    struct TestLeaf(usize);
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct TestLeaf(pub usize);
 
     impl Leaf for TestLeaf {
         type Info = usize;
@@ -306,15 +320,15 @@ mod tests {
         }
     }
 
-    fn root_of<L: Leaf>(tree: &UniTree<L>) -> &Node<L> {
-        tree.root.as_ref().unwrap()
+    pub fn root_of<L: Leaf>(tree: &UniTree<L>) -> &Node<L> {
+        tree.root.as_ref().expect("tree root was empty")
     }
 
-    fn info_of<L: Leaf>(tree: &UniTree<L>) -> &L::Info {
+    pub fn info_of<L: Leaf>(tree: &UniTree<L>) -> &L::Info {
         root_of(&tree).info()
     }
 
-    fn height_of<L: Leaf>(tree: &UniTree<L>) -> usize {
+    pub fn height_of<L: Leaf>(tree: &UniTree<L>) -> usize {
         root_of(&tree).height()
     }
 
