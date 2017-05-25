@@ -6,8 +6,9 @@
 
 extern crate arrayvec;
 
-use std::sync::Arc;
 use std::cmp;
+use std::iter::FromIterator;
+use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 
@@ -68,10 +69,12 @@ pub struct LeafVal<L: Leaf> {
 }
 
 impl Info for () {
+    #[inline]
     fn gather(self, _: ()) { }
 }
 
 impl Info for usize {
+    #[inline]
     fn gather(self, other: usize) -> usize {
         self + other
     }
@@ -105,6 +108,7 @@ impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
 }
 
 impl<L: Leaf> Node<L> {
+    #[inline]
     pub fn from_leaf(leaf: L) -> Node<L> {
         Node::Leaf(LeafVal {
                        info: leaf.compute_info(),
@@ -113,6 +117,7 @@ impl<L: Leaf> Node<L> {
     }
 
     /// All nodes should be at the same height, panics otherwise.
+    #[inline]
     pub fn from_nodes(nodes: Arc<NVec<Node<L>>>) -> Node<L> {
         let height = nodes[0].height() + 1;
         let mut info = nodes[0].info();
@@ -173,6 +178,7 @@ impl<L: Leaf> Node<L> {
 
     /// Traverse this node conditioned on a callback which is provided with cumulatively gathered
     /// info from left to right. Returns `Err(())` if called on a leaf.
+    #[inline]
     pub fn gather_traverse<T, F>(&self, start: L::Info, mut f: F) -> Result<Option<T>, ()>
         where F: FnMut(usize, L::Info, Option<L::Info>) -> Option<T>
     {
@@ -327,6 +333,23 @@ impl<L: Leaf> UniTree<L> {
 impl<L: Leaf> From<Node<L>> for UniTree<L> {
     fn from(node: Node<L>) -> UniTree<L> {
         UniTree { root: Some(node) }
+    }
+}
+
+impl<L: Leaf> FromIterator<L> for UniTree<L> {
+    fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
+        let mut tree = UniTree::new();
+        let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
+
+        loop {
+            let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
+            if nodes.len() > 0 {
+                tree.push_back(Node::from_nodes(Arc::new(nodes)));
+            } else {
+                break;
+            }
+        }
+        tree
     }
 }
 
