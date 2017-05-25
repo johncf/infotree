@@ -11,6 +11,8 @@ use std::cmp;
 
 use arrayvec::ArrayVec;
 
+pub mod cursor;
+
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
 
@@ -162,6 +164,31 @@ impl<L: Leaf> Node<L> {
         }
     }
 
+    /// Search within this node using accumulated info from left to right.
+    ///
+    /// Panics if called on a leaf.
+    pub fn accu_info_search<T, F>(&self, mut f: F, start: L::Info) -> Option<T>
+        where F: FnMut(usize, L::Info, Option<L::Info>) -> Option<T>
+    {
+        let mut cur = start;
+        match self {
+            &Node::Internal(ref int) => {
+                let mut idx = 0;
+                for node in &*int.val {
+                    let mut next = cur.clone();
+                    next.accumulate(node.info());
+                    if let Some(x) = f(idx, cur, Some(next.clone())) {
+                        return Some(x);
+                    }
+                    cur = next;
+                    idx += 1;
+                }
+                f(idx, cur, None)
+            }
+            &Node::Leaf(_) => panic!("accu_info_search called on a leaf."),
+        }
+    }
+
     fn has_min_size(&self) -> bool {
         match *self {
             Node::Internal(ref int) => int.val.len() >= MIN_CHILDREN,
@@ -260,70 +287,6 @@ impl<L: Leaf> LeftTree<L> {
 impl<L: Leaf> From<Node<L>> for LeftTree<L> {
     fn from(node: Node<L>) -> LeftTree<L> {
         LeftTree { root: Some(node) }
-    }
-}
-
-// Maximum height of tree that can be handled by the cursor.
-// => Maximum number of elements = MAX_CHILDREN^CURSOR_P2R_SIZE = 16^8 = 2^32
-const CURSOR_MAX_HT: usize = 8;
-
-type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
-
-struct CursorStep<L: Leaf> {
-    nodes: Arc<NVec<Node<L>>>,
-    idx: usize, // index at which cursor descended
-}
-
-pub struct Cursor<L: Leaf> {
-    root: Option<Node<L>>,
-    steps: CVec<CursorStep<L>>,
-}
-
-impl<L: Leaf> Cursor<L> {
-    pub fn new(node: Node<L>) -> Cursor<L> {
-        Cursor {
-            root: Some(node),
-            steps: CVec::new(),
-        }
-    }
-
-    pub fn current(&self) -> &Node<L> {
-        match self.root {
-            Some(ref node) => node,
-            None => match self.steps.last() {
-                Some(cstep) => &cstep.nodes[cstep.idx],
-                None => unreachable!("Bad Cursor"),
-            }
-        }
-    }
-
-    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
-        match self.root {
-            Some(ref mut node) => node.leaf_mut(),
-            None => match self.steps.last_mut() {
-                Some(cstep) => Arc::make_mut(&mut cstep.nodes)[cstep.idx].leaf_mut(),
-                None => unreachable!("Bad Cursor"),
-            }
-        }
-    }
-}
-
-impl<L: Leaf> From<Cursor<L>> for Node<L> {
-    fn from(mut cur: Cursor<L>) -> Node<L> {
-        match cur.root {
-            Some(node) => node,
-            None => match cur.steps.pop() {
-                Some(CursorStep { nodes, .. }) => {
-                    let mut root = Node::from_nodes(nodes);
-                    for CursorStep { mut nodes, idx } in cur.steps.into_iter().rev() {
-                        Arc::make_mut(&mut nodes)[idx] = root;
-                        root = Node::from_nodes(nodes)
-                    }
-                    root
-                }
-                None => unreachable!("Bad Cursor"),
-            }
-        }
     }
 }
 
