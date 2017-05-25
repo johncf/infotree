@@ -17,7 +17,7 @@ pub struct Cursor<'a, L: Leaf + 'a> {
 struct CursorStep<'a, L: Leaf + 'a> {
     nodes: &'a Arc<NVec<Node<L>>>,
     idx: usize, // index at which cursor descended
-    info: L::Info, // accumulated info until current node
+    info: L::Info, // cumulative info from the root node
 }
 
 impl<'a, L> fmt::Debug for CursorStep<'a, L> where L: Leaf, L::Info: fmt::Display {
@@ -27,9 +27,10 @@ impl<'a, L> fmt::Debug for CursorStep<'a, L> where L: Leaf, L::Info: fmt::Displa
 }
 
 impl<'a, L: Leaf + 'a> Cursor<'a, L> {
-    /// Create a new cursor from a root node. `info_zero` will be the starting value of info when
-    /// accumulating it while traversing the tree. It should probably be the zero value of that
-    /// type (the identity element for the accumulate operation).
+    /// Create a new cursor from a root node. `info_zero` will be the starting value of info at the
+    /// root. `info` is cumulatively gathered along the path to root for the node being pointed to
+    /// by the cursor. Therefore, `info_zero` should probably be the zero value of that type (the
+    /// identity element of `Info::gather` operation).
     pub fn new(node: &Node<L>, info_zero: L::Info) -> Cursor<L> {
         Cursor {
             root: node,
@@ -38,7 +39,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    /// Get the current node the cursor is pointing to.
+    /// Returns the current node the cursor is pointing to.
     pub fn node(&self) -> &'a Node<L> {
         match self.steps.last() {
             Some(cstep) => &cstep.nodes[cstep.idx],
@@ -46,11 +47,11 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    /// Get the accumulated info for the current node.
-    pub fn info(&self) -> &L::Info {
+    /// Returns the cumulative info (from the root) for the current node.
+    pub fn info(&self) -> L::Info {
         match self.steps.last() {
-            Some(cstep) => &cstep.info,
-            None => &self.info_zero,
+            Some(cstep) => cstep.info,
+            None => self.info_zero,
         }
     }
 
@@ -78,8 +79,8 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         where F: FnMut(L::Info, L::Info) -> bool
     {
         let cur_node = self.node();
-        let cur_info = self.info().clone();
-        match cur_node.accu_info_with_default_end(cur_info, |i, j| f(i, j)) {
+        let cur_info = self.info();
+        match cur_node.traverse_with_default_end(cur_info, |i, j| f(i, j)) {
             Ok((idx, next_info)) => {
                 if self.steps.push(CursorStep {
                                        nodes: cur_node.children_raw(),
@@ -94,7 +95,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    /// Recursively descend the tree while accumulating info, until either:
+    /// Recursively descend the tree while cumulatively gathering info, until either:
     /// - `f` returns `true` on a leaf node (current node is set to that leaf), or
     /// - `f` returns `false` on all leaf nodes (current node is set to the last leaf).
     ///
@@ -214,10 +215,10 @@ mod tests {
         }
         let mut cursor = Cursor::new(root_of(&tree), 0);
         assert_eq!(*cursor.first_leaf_below(), TestLeaf(1));
-        assert_eq!(*cursor.info(), 0);
+        assert_eq!(cursor.info(), 0);
         cursor.reset();
         assert_eq!(*cursor.last_leaf_below(), TestLeaf(20));
-        assert_eq!(*cursor.info(), 19*20/2, "{:?}", cursor.steps);
+        assert_eq!(cursor.info(), 19*20/2, "{:?}", cursor.steps);
     }
 
     // FIXME need more tests

@@ -40,9 +40,9 @@ pub trait Leaf: Clone {
     fn compute_info(&self) -> Self::Info;
 }
 
-/// Metadata that need to be accumulated hierarchically over the tree.
-pub trait Info: Clone {
-    fn accumulate(&mut self, other: &Self);
+/// Metadata that need to be gathered hierarchically over the tree.
+pub trait Info: Copy {
+    fn gather(self, other: Self) -> Self;
 }
 
 /// A `UniTree` node.
@@ -68,12 +68,12 @@ pub struct LeafVal<L: Leaf> {
 }
 
 impl Info for () {
-    fn accumulate(&mut self, _: &()) { }
+    fn gather(self, _: ()) { }
 }
 
 impl Info for usize {
-    fn accumulate(&mut self, other: &usize) {
-        *self += *other;
+    fn gather(self, other: usize) -> usize {
+        self + other
     }
 }
 
@@ -115,19 +115,19 @@ impl<L: Leaf> Node<L> {
     /// All nodes should be at the same height, panics otherwise.
     pub fn from_nodes(nodes: Arc<NVec<Node<L>>>) -> Node<L> {
         let height = nodes[0].height() + 1;
-        let mut info = nodes[0].info().clone();
+        let mut info = nodes[0].info();
         for child in &nodes[1..] {
             assert_eq!(height, child.height() + 1);
-            info.accumulate(&child.info());
+            info = info.gather(child.info());
         }
         Node::Internal(InternalVal { info, height, nodes })
     }
 
-    /// Returns the accumulated info for this node.
-    pub fn info(&self) -> &L::Info {
+    /// Returns the info for this node, gathered from all its leaves.
+    pub fn info(&self) -> L::Info {
         match *self {
-            Node::Internal(InternalVal { ref info, .. })
-                | Node::Leaf(LeafVal { ref info, .. }) => info,
+            Node::Internal(InternalVal { info, .. })
+                | Node::Leaf(LeafVal { info, .. }) => info,
         }
     }
 
@@ -171,25 +171,25 @@ impl<L: Leaf> Node<L> {
         }
     }
 
-    /// Traverse this node conditioned on a callback which is provided with accumulated info from
-    /// left to right. Returns `Err(())` if called on a leaf.
-    pub fn accu_info_by<T, F>(&self, start: L::Info, mut f: F) -> Result<Option<T>, ()>
+    /// Traverse this node conditioned on a callback which is provided with cumulatively gathered
+    /// info from left to right. Returns `Err(())` if called on a leaf.
+    pub fn gather_traverse<T, F>(&self, start: L::Info, mut f: F) -> Result<Option<T>, ()>
         where F: FnMut(usize, L::Info, Option<L::Info>) -> Option<T>
     {
-        let mut cur = start;
+        let mut cur_info = start;
         match self {
             &Node::Internal(ref int) => {
                 let mut idx = 0;
                 for node in &*int.nodes {
-                    let mut next = cur.clone();
-                    next.accumulate(node.info());
-                    if let Some(x) = f(idx, cur, Some(next.clone())) {
+                    let mut next_info = cur_info;
+                    next_info = next_info.gather(node.info());
+                    if let Some(x) = f(idx, cur_info, Some(next_info)) {
                         return Ok(Some(x));
                     }
-                    cur = next;
+                    cur_info = next_info;
                     idx += 1;
                 }
-                Ok(f(idx, cur, None))
+                Ok(f(idx, cur_info, None))
             }
             &Node::Leaf(_) => Err(()),
         }
@@ -198,23 +198,23 @@ impl<L: Leaf> Node<L> {
     // Returns `(index, accu_info)` of the node at which `f` returned `true`. If all were `false`,
     // this returns `(index, accu_info)` of the last child in the node. Returns `Err` if called on
     // a leaf node.
-    fn accu_info_with_default_end<F>(&self, start: L::Info, mut f: F) -> Result<(usize, L::Info), ()>
+    fn traverse_with_default_end<F>(&self, start: L::Info, mut f: F) -> Result<(usize, L::Info), ()>
         where F: FnMut(L::Info, L::Info) -> bool
     {
         let mut info = start;
-        self.accu_info_by(info.clone(),
-                          |idx, info_beg, info_end| {
-                              match info_end {
-                                  Some(info_end) => {
-                                      info = info_beg.clone();
-                                      match f(info_beg, info_end) {
-                                          true => Some(idx),
-                                          false => None,
-                                      }
-                                  }
-                                  None => Some(idx - 1), // the "default_end"
-                              }
-                          })
+        self.gather_traverse(info,
+                             |idx, info_beg, info_end| {
+                                 match info_end {
+                                     Some(info_end) => {
+                                         info = info_beg;
+                                         match f(info_beg, info_end) {
+                                             true => Some(idx),
+                                             false => None,
+                                         }
+                                     }
+                                     None => Some(idx - 1), // the "default_end"
+                                 }
+                             })
             .map(|idx| (idx.unwrap(), info))
     }
 
@@ -346,7 +346,7 @@ mod tests {
         tree.root.as_ref().expect("tree root was empty")
     }
 
-    pub fn info_of<L: Leaf>(tree: &UniTree<L>) -> &L::Info {
+    pub fn info_of<L: Leaf>(tree: &UniTree<L>) -> L::Info {
         root_of(&tree).info()
     }
 
@@ -359,18 +359,18 @@ mod tests {
         let mut tree = UniTree::new();
         tree.push_back(Node::from_leaf(TestLeaf(1)));
         assert_eq!(height_of(&tree), 0);
-        assert_eq!(*info_of(&tree), 1);
+        assert_eq!(info_of(&tree), 1);
         tree.push_back(Node::from_leaf(TestLeaf(2)));
         assert_eq!(height_of(&tree), 1);
-        assert_eq!(*info_of(&tree), 3);
+        assert_eq!(info_of(&tree), 3);
         for i in 3..17 {
             tree.push_back(Node::from_leaf(TestLeaf(i)));
         }
         assert_eq!(height_of(&tree), 1);
-        assert_eq!(*info_of(&tree), 8 * 17);
+        assert_eq!(info_of(&tree), 8 * 17);
         tree.push_back(Node::from_leaf(TestLeaf(17)));
         assert_eq!(height_of(&tree), 2);
-        assert_eq!(*info_of(&tree), 9 * 17);
+        assert_eq!(info_of(&tree), 9 * 17);
     }
 
     // FIXME need more tests
