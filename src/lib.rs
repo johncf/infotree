@@ -195,6 +195,53 @@ impl<L: Leaf> Node<L> {
         }
     }
 
+    /// Concatenates two nodes of possibly different heights into a single balanced node.
+    pub fn concat(node1: Node<L>, node2: Node<L>) -> Node<L> {
+        let h1 = node1.height();
+        let h2 = node2.height();
+
+        match h1.cmp(&h2) {
+            cmp::Ordering::Less => {
+                let children2 = node2.children();
+                if h1 == h2 - 1 && node1.has_min_size() {
+                    Node::merge_nodes(&[node1], children2)
+                } else {
+                    let newnode = Node::concat(node1, children2[0].clone());
+                    if newnode.height() == h2 - 1 {
+                        Node::merge_nodes(&[newnode], &children2[1..])
+                    } else {
+                        debug_assert_eq!(newnode.height(), h2);
+                        Node::merge_nodes(newnode.children(), &children2[1..])
+                    }
+                }
+            },
+            cmp::Ordering::Equal => {
+                if node1.has_min_size() && node2.has_min_size() {
+                    Node::merge_two(node1, node2)
+                } else {
+                    Node::merge_nodes(node1.children(), node2.children())
+                }
+            },
+            cmp::Ordering::Greater => {
+                let children1 = node1.children();
+                if h2 == h1 - 1 && node2.has_min_size() {
+                    Node::merge_nodes(children1, &[node2])
+                } else {
+                    let lastix = children1.len() - 1;
+                    let newnode = Node::concat(children1[lastix].clone(), node2);
+                    if newnode.height() == h1 - 1 {
+                        Node::merge_nodes(&children1[..lastix], &[newnode])
+                    } else {
+                        debug_assert_eq!(newnode.height(), h1);
+                        Node::merge_nodes(&children1[..lastix], newnode.children())
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<L: Leaf> Node<L> {
     // Returns `(index, accu_info)` of the node at which `f` returned `true`. If all were `false`,
     // this returns `(index, accu_info)` of the last child in the node. Returns `Err` if called on
     // a leaf node.
@@ -251,51 +298,6 @@ impl<L: Leaf> Node<L> {
             let left = Node::from_nodes(Arc::new(iter.by_ref().take(n_left).collect()));
             let right = Node::from_nodes(Arc::new(iter.collect()));
             Node::merge_two(left, right)
-        }
-    }
-
-    /// Concatenates two nodes of possibly different heights into a single balanced node.
-    pub fn concat(node1: Node<L>, node2: Node<L>) -> Node<L> {
-        let h1 = node1.height();
-        let h2 = node2.height();
-
-        match h1.cmp(&h2) {
-            cmp::Ordering::Less => {
-                let children2 = node2.children();
-                if h1 == h2 - 1 && node1.has_min_size() {
-                    Node::merge_nodes(&[node1], children2)
-                } else {
-                    let newnode = Node::concat(node1, children2[0].clone());
-                    if newnode.height() == h2 - 1 {
-                        Node::merge_nodes(&[newnode], &children2[1..])
-                    } else {
-                        debug_assert_eq!(newnode.height(), h2);
-                        Node::merge_nodes(newnode.children(), &children2[1..])
-                    }
-                }
-            },
-            cmp::Ordering::Equal => {
-                if node1.has_min_size() && node2.has_min_size() {
-                    Node::merge_two(node1, node2)
-                } else {
-                    Node::merge_nodes(node1.children(), node2.children())
-                }
-            },
-            cmp::Ordering::Greater => {
-                let children1 = node1.children();
-                if h2 == h1 - 1 && node2.has_min_size() {
-                    Node::merge_nodes(children1, &[node2])
-                } else {
-                    let lastix = children1.len() - 1;
-                    let newnode = Node::concat(children1[lastix].clone(), node2);
-                    if newnode.height() == h1 - 1 {
-                        Node::merge_nodes(&children1[..lastix], &[newnode])
-                    } else {
-                        debug_assert_eq!(newnode.height(), h1);
-                        Node::merge_nodes(&children1[..lastix], newnode.children())
-                    }
-                }
-            }
         }
     }
 }
