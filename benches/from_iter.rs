@@ -1,12 +1,15 @@
 #![feature(test)]
 
-extern crate test;
-extern crate unitree;
+// A set of totally unscientific and unfair benchmarks!
 
-use unitree::{Leaf, UniTree};
+extern crate test;
+extern crate infotree;
+
+use infotree::{Leaf, InfoTree};
 use test::Bencher;
 
 use std::collections::LinkedList;
+use std::collections::BTreeSet;
 
 const TOTAL: usize = 40960;
 
@@ -19,6 +22,13 @@ impl Leaf for TestLeaf {
 }
 
 #[bench]
+fn from_iter_bts(b: &mut Bencher) {
+    b.iter(|| {
+        (0..TOTAL).collect::<BTreeSet<_>>();
+    })
+}
+
+#[bench]
 fn from_iter_ll(b: &mut Bencher) {
     b.iter(|| {
         (0..TOTAL).collect::<LinkedList<_>>();
@@ -28,7 +38,7 @@ fn from_iter_ll(b: &mut Bencher) {
 #[bench]
 fn from_iter_ut(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).map(|e| TestLeaf(e)).collect::<UniTree<_>>();
+        (0..TOTAL).map(|e| TestLeaf(e)).collect::<InfoTree<_>>();
     })
 }
 

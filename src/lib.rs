@@ -28,18 +28,18 @@ type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
 
 /// A self-balancing B-Tree-like data structure.
 ///
-/// UniTree is a self-balancing data structure similar to B-Tree, except that each element in an
+/// InfoTree is a self-balancing data structure similar to B-Tree, except that each element in an
 /// internal node corresponds to exactly one branch (as opposed to having k elements and k+1
 /// branches). Another difference is that data is stored in leaf nodes similar to a B+Tree; but
 /// unlike B+Trees, there are no direct links between leaf nodes.
 ///
-/// Note: `UniTree` uses `Arc` for its CoW capability.
+/// Note: `InfoTree` uses `Arc` for its CoW capability.
 #[derive(Clone)]
-pub struct UniTree<L: Leaf> {
+pub struct InfoTree<L: Leaf> {
     pub root: Option<Node<L>>,
 }
 
-/// The leaves of a `UniTree` should implement this trait.
+/// The leaves of a `InfoTree` should implement this trait.
 ///
 /// Note: If cloning a leaf is expensive, consider wrapping it in `Arc`.
 pub trait Leaf: Clone {
@@ -61,7 +61,7 @@ pub trait Info: Copy {
     fn minus(self, other: Self) -> Self;
 }
 
-/// A `UniTree` node.
+/// A `InfoTree` node.
 #[derive(Clone)]
 pub enum Node<L: Leaf> {
     Internal(InternalVal<L>),
@@ -341,9 +341,9 @@ impl<L: Leaf> Node<L> {
     }
 }
 
-impl<L: Leaf> UniTree<L> {
-    pub fn new() -> UniTree<L> {
-        UniTree { root: None }
+impl<L: Leaf> InfoTree<L> {
+    pub fn new() -> InfoTree<L> {
+        InfoTree { root: None }
     }
 
     pub fn push_back(&mut self, node: Node<L>) {
@@ -363,15 +363,15 @@ impl<L: Leaf> UniTree<L> {
     }
 }
 
-impl<L: Leaf> From<Node<L>> for UniTree<L> {
-    fn from(node: Node<L>) -> UniTree<L> {
-        UniTree { root: Some(node) }
+impl<L: Leaf> From<Node<L>> for InfoTree<L> {
+    fn from(node: Node<L>) -> InfoTree<L> {
+        InfoTree { root: Some(node) }
     }
 }
 
-impl<L: Leaf> FromIterator<L> for UniTree<L> {
+impl<L: Leaf> FromIterator<L> for InfoTree<L> {
     fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
-        let mut tree = UniTree::new();
+        let mut tree = InfoTree::new();
         let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
 
         loop {
@@ -400,21 +400,21 @@ mod tests {
         }
     }
 
-    pub fn root_of<L: Leaf>(tree: &UniTree<L>) -> &Node<L> {
+    pub fn root_of<L: Leaf>(tree: &InfoTree<L>) -> &Node<L> {
         tree.root.as_ref().expect("tree root was empty")
     }
 
-    pub fn info_of<L: Leaf>(tree: &UniTree<L>) -> L::Info {
+    pub fn info_of<L: Leaf>(tree: &InfoTree<L>) -> L::Info {
         root_of(&tree).info()
     }
 
-    pub fn height_of<L: Leaf>(tree: &UniTree<L>) -> usize {
+    pub fn height_of<L: Leaf>(tree: &InfoTree<L>) -> usize {
         root_of(&tree).height()
     }
 
     #[test]
     fn basics() {
-        let mut tree = UniTree::new();
+        let mut tree = InfoTree::new();
         tree.push_back(Node::from_leaf(TestLeaf(1)));
         assert_eq!(height_of(&tree), 0);
         assert_eq!(info_of(&tree), 1);

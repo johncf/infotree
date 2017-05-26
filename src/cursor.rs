@@ -198,10 +198,7 @@ mod tests {
 
     #[test]
     fn basics() {
-        let mut tree = UniTree::new();
-        for i in 1..21 {
-            tree.push_back(Node::from_leaf(TestLeaf(i)));
-        }
+        let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
         let mut cursor = Cursor::new(root_of(&tree), 0);
         assert_eq!(*cursor.first_leaf_below(), TestLeaf(1));
         assert_eq!(cursor.path_info(), 0);
@@ -212,10 +209,7 @@ mod tests {
 
     #[test]
     fn leaf_traversal() {
-        let mut tree = UniTree::new();
-        for i in 1..21 {
-            tree.push_back(Node::from_leaf(TestLeaf(i)));
-        }
+        let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
         let mut cursor = Cursor::new(root_of(&tree), 0);
         for i in 1..21 {
             assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));

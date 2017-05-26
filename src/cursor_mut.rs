@@ -63,14 +63,19 @@ impl<L: Leaf> CursorMut<L> {
         while let Some(_) = self.ascend() {}
     }
 
-    //for both insert operations, the cursor should point to the inserted node.
+    // for both insert operations, the cursor should point to the inserted node when no splits were
+    // made, otherwise stay at the ancestor node where the splitting stopped (the return value
+    // should indicate this fact).
     //pub fn insert(&mut self) {}
     //pub fn insert_after(&mut self) {}
 
-    //the cursor should point to the adjacent node (preferrably the right, with no change in position)
+    // the cursor should point to the same position if possible, or if there are no children on the
+    // right to replace it, move left, or if it underflows, move up and merge with an adjacent node
+    // (the return value should reflect any changes in position. even though the exact changes need
+    // not be conveyed, the cursor should be guaranteed to be in the ancestor line)
     //pub fn delete(&mut self) {}
 
-    //split the tree into two trees; the current node and all leaves to its right should be
-    //included in the second tree.
+    // split the tree into two trees; the current node and all leaves to its right should be
+    // included in the second tree.
     //pub fn split(self) -> (Node<L>, Node<L>) {}
 }
