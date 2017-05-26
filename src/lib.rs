@@ -53,7 +53,7 @@ pub trait Info: Copy {
     fn gather_up(i1: Self, i2: Self) -> Self;
 
     /// Used when traversing down the tree for computing the cumulative info from root.
-    fn gather_down(cumulative: Option<Self>, prev: Self) -> Self;
+    fn gather_down(cumulative: Self, prev: Self) -> Self;
 
     // Inverse of `gather_down`. If the info on two adjacent nodes are `i1` and `i2`, and `c0` is
     // the cumulative info before `i1`, then the following condition should hold:
@@ -63,7 +63,7 @@ pub trait Info: Copy {
     // where `g` is `gather_down` and `g_inv` is `gather_down_inv`.
     //
     // `None` should be returned only if `prev` is `None`, otherwise traversal may panic.
-    //fn gather_down_inv(cumulative: Self, curr: Self, prev: Option<Self>) -> Option<Self>;
+    //fn gather_down_inv(cumulative: Self, curr: Self, prev: Self) -> Self;
 }
 
 /// The basic building block of a tree.
@@ -99,7 +99,7 @@ impl Info for () {
     #[inline]
     fn gather_up(_: (), _: ()) { }
     #[inline]
-    fn gather_down(_: Option<()>, _: ()) { }
+    fn gather_down(_: (), _: ()) { }
 }
 
 impl Info for usize {
@@ -108,8 +108,8 @@ impl Info for usize {
         this + other
     }
     #[inline]
-    fn gather_down(this: Option<usize>, other: usize) -> usize {
-        this.map_or(other, |this| this + other)
+    fn gather_down(this: usize, other: usize) -> usize {
+        this + other
     }
 }
 
@@ -185,8 +185,8 @@ impl<L: Leaf> Node<L> {
     /// Traverse this node conditioned on a callback which is provided with cumulatively gathered
     /// info from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
     #[inline]
-    pub fn gather_traverse<'a, F>(&'a self, start: Option<L::Info>, mut f: F) -> TraverseResult<'a, L>
-        where F: FnMut(Option<L::Info>, L::Info) -> bool
+    pub fn gather_traverse<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
+        where F: FnMut(L::Info, L::Info) -> bool
     {
         let mut cur_info = start;
         match self {
@@ -196,7 +196,7 @@ impl<L: Leaf> Node<L> {
                     if f(cur_info, next_info) {
                         return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
                     }
-                    cur_info = Some(next_info);
+                    cur_info = next_info;
                 }
                 Err(TraverseError::AllFalse)
             }
@@ -208,15 +208,15 @@ impl<L: Leaf> Node<L> {
     /// the same for corresponding nodes as calling `gather_traverse` with the exact same parameter
     /// `start`.
     #[inline]
-    pub fn gather_traverse_rev<'a, F>(&'a self, start: Option<L::Info>, mut f: F) -> TraverseResult<'a, L>
-        where F: FnMut(Option<L::Info>, L::Info) -> bool
+    pub fn gather_traverse_rev<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
+        where F: FnMut(L::Info, L::Info) -> bool
     {
         match self {
             &Node::Internal(ref int) => {
                 let mut info = start;
                 let info_cache: NVec<_> = int.nodes.iter().map(|child| {
                     let ret = info;
-                    info = Some(Info::gather_down(info, child.info()));
+                    info = Info::gather_down(info, child.info());
                     ret
                 }).collect();
                 for (idx, (node, cur_info)) in int.nodes.iter().zip(info_cache).enumerate().rev() {
@@ -306,7 +306,7 @@ pub type TraverseResult<'a, L> = Result<TraverseSummary<'a, L>, TraverseError>;
 
 pub struct TraverseSummary<'a, L: Leaf + 'a> {
     child: &'a Node<L>,
-    info: Option<L::Info>,
+    info: L::Info,
     index: usize,
 }
 

@@ -5,13 +5,14 @@ use std::fmt;
 pub struct Cursor<'a, L: Leaf + 'a> {
     root: &'a Node<L>,
     steps: CVec<CursorStep<'a, L>>,
+    info_zero: L::Info,
 }
 
 #[derive(Clone)]
 struct CursorStep<'a, L: Leaf + 'a> {
     nodes: &'a RC<NVec<Node<L>>>,
     idx: usize, // index at which cursor descended
-    info: Option<L::Info>, // cumulative info from the root node
+    info: L::Info, // cumulative info from the root node
 }
 
 impl<'a, L> fmt::Debug for CursorStep<'a, L> where L: Leaf, L::Info: fmt::Debug {
@@ -22,12 +23,15 @@ impl<'a, L> fmt::Debug for CursorStep<'a, L> where L: Leaf, L::Info: fmt::Debug 
 }
 
 impl<'a, L: Leaf + 'a> Cursor<'a, L> {
-    /// Create a new cursor from a root node. `info` is cumulatively gathered along the path from
-    /// root to the node being pointed to by the cursor.
-    pub fn new(node: &Node<L>) -> Cursor<L> {
+    /// Create a new cursor from a root node. `info_zero` will be the starting value of info at the
+    /// root. Info is cumulatively gathered along the path from root to the node being pointed to
+    /// by the cursor. Therefore, `info_zero` should probably be the zero value of that type (the
+    /// identity element of `Info::plus` operation).
+    pub fn new(node: &Node<L>, info_zero: L::Info) -> Cursor<L> {
         Cursor {
             root: node,
             steps: CVec::new(),
+            info_zero: info_zero,
         }
     }
 
@@ -46,10 +50,10 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     ///
     /// Example 2: Cumulative info of the second node under the 4th node under root node is that of
     /// the 4th node (as in Example 1) `Info::gather_down` with the first child node.
-    pub fn path_info(&self) -> Option<L::Info> {
+    pub fn path_info(&self) -> L::Info {
         match self.steps.last() {
             Some(cstep) => cstep.info,
-            None => None,
+            None => self.info_zero,
         }
     }
 
@@ -72,7 +76,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     ///
     /// Panics if tree depth is greater than 8.
     pub fn descend<F>(&mut self, mut f: F, reverse: bool) -> Option<&'a Node<L>>
-        where F: FnMut(Option<L::Info>, L::Info) -> bool
+        where F: FnMut(L::Info, L::Info) -> bool
     {
         let cur_node = self.node();
         let cur_info = self.path_info();
@@ -106,7 +110,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
                 Some(CursorStep { nodes, mut idx, mut info }) => {
                     if idx + 1 < nodes.len() {
                         self.steps = steps_clone;
-                        info = Some(Info::gather_down(info, nodes[idx].info()));
+                        info = Info::gather_down(info, nodes[idx].info());
                         idx += 1;
                         self.steps.push(CursorStep { nodes, idx, info });
                         while depth_delta > 0 {
@@ -136,7 +140,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
                         idx -= 1;
                         let mut info = self.path_info();
                         for node in &nodes[..idx] {
-                            info = Some(Info::gather_down(info, node.info()));
+                            info = Info::gather_down(info, node.info());
                         }
                         self.steps.push(CursorStep { nodes, idx, info });
                         while depth_delta > 0 {
@@ -199,18 +203,18 @@ mod tests {
     #[test]
     fn basics() {
         let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
-        let mut cursor = Cursor::new(root_of(&tree));
+        let mut cursor = Cursor::new(root_of(&tree), 0);
         assert_eq!(*cursor.first_leaf_below(), TestLeaf(1));
-        assert_eq!(cursor.path_info(), None);
+        assert_eq!(cursor.path_info(), 0);
         cursor.reset();
         assert_eq!(*cursor.last_leaf_below(), TestLeaf(20));
-        assert_eq!(cursor.path_info(), Some(19*20/2), "{:?}", cursor.steps);
+        assert_eq!(cursor.path_info(), 19*20/2, "{:?}", cursor.steps);
     }
 
     #[test]
     fn leaf_traversal() {
         let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
-        let mut cursor = Cursor::new(root_of(&tree));
+        let mut cursor = Cursor::new(root_of(&tree), 0);
         for i in 1..21 {
             assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
         }
