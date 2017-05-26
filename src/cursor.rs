@@ -2,12 +2,6 @@ use super::*;
 
 use std::fmt;
 
-// Maximum height of tree that can be handled by the cursor.
-// => Maximum number of elements = MAX_CHILDREN^CURSOR_P2R_SIZE = 16^8 = 2^32
-const CURSOR_MAX_HT: usize = 8;
-
-type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
-
 pub struct Cursor<'a, L: Leaf + 'a> {
     root: &'a Node<L>,
     steps: CVec<CursorStep<'a, L>>,
@@ -190,64 +184,6 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         match self.node().leaf() {
             None => Some(self.last_leaf_below()),
             Some(_) => self.prev_node().map(|node| node.leaf().unwrap()),
-        }
-    }
-}
-
-pub struct CursorMut<L: Leaf> {
-    root: Option<Node<L>>,
-    steps: CVec<CursorMutStep<L>>,
-}
-
-struct CursorMutStep<L: Leaf> {
-    nodes: RC<NVec<Node<L>>>,
-    idx: usize,
-}
-
-impl<L: Leaf> CursorMut<L> {
-    pub fn new(node: Node<L>) -> CursorMut<L> {
-        CursorMut {
-            root: Some(node),
-            steps: CVec::new(),
-        }
-    }
-
-    pub fn current(&self) -> &Node<L> {
-        match self.root {
-            Some(ref node) => node,
-            None => match self.steps.last() {
-                Some(cstep) => &cstep.nodes[cstep.idx],
-                None => unreachable!("Bad CursorMut"),
-            }
-        }
-    }
-
-    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
-        match self.root {
-            Some(ref mut node) => node.leaf_mut(),
-            None => match self.steps.last_mut() {
-                Some(cstep) => RC::make_mut(&mut cstep.nodes)[cstep.idx].leaf_mut(),
-                None => unreachable!("Bad CursorMut"),
-            }
-        }
-    }
-}
-
-impl<L: Leaf> From<CursorMut<L>> for Node<L> {
-    fn from(mut cursor: CursorMut<L>) -> Node<L> {
-        match cursor.root {
-            Some(node) => node,
-            None => match cursor.steps.pop() {
-                Some(CursorMutStep { nodes, .. }) => {
-                    let mut root = Node::from_nodes(nodes);
-                    for CursorMutStep { mut nodes, idx } in cursor.steps.into_iter().rev() {
-                        RC::make_mut(&mut nodes)[idx] = root;
-                        root = Node::from_nodes(nodes)
-                    }
-                    root
-                }
-                None => unreachable!("Bad CursorMut"),
-            }
         }
     }
 }

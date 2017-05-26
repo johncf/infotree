@@ -12,12 +12,19 @@ use std::iter::FromIterator;
 use arrayvec::ArrayVec;
 
 pub mod cursor;
+pub mod cursor_mut;
 
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
 
 type RC<T> = std::sync::Arc<T>; // replace with std::rc::Rc<T> to get significant speed-up.
 type NVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
+
+// Maximum height of tree that can be handled by cursor types.
+const CURSOR_MAX_HT: usize = 8;
+// => Maximum number of elements = MAX_CHILDREN^CURSOR_P2R_SIZE = 16^8 = 2^32
+
+type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
 
 /// A self-balancing B-Tree-like data structure.
 ///
