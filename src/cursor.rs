@@ -30,7 +30,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     /// Create a new cursor from a root node. `info_zero` will be the starting value of info at the
     /// root. `info` is cumulatively gathered along the path to root for the node being pointed to
     /// by the cursor. Therefore, `info_zero` should probably be the zero value of that type (the
-    /// identity element of `Info::gather` operation).
+    /// identity element of `Info::plus` operation).
     pub fn new(node: &Node<L>, info_zero: L::Info) -> Cursor<L> {
         Cursor {
             root: node,

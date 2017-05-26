@@ -43,7 +43,13 @@ pub trait Leaf: Clone {
 
 /// Metadata that need to be gathered hierarchically over the tree.
 pub trait Info: Copy {
-    fn gather(self, other: Self) -> Self;
+    /// The operation used for combining two info objects.
+    fn plus(self, other: Self) -> Self;
+
+    /// The inverse of plus such that `x.plus(y).minus(y) == x` for all `x` and `y`.
+    ///
+    /// Used to optimize certain tree traversal operations.
+    fn minus(self, other: Self) -> Self;
 }
 
 /// A `UniTree` node.
@@ -70,13 +76,19 @@ pub struct LeafVal<L: Leaf> {
 
 impl Info for () {
     #[inline]
-    fn gather(self, _: ()) { }
+    fn plus(self, _: ()) { }
+    #[inline]
+    fn minus(self, _: ()) { }
 }
 
 impl Info for usize {
     #[inline]
-    fn gather(self, other: usize) -> usize {
+    fn plus(self, other: usize) -> usize {
         self + other
+    }
+    #[inline]
+    fn minus(self, other: usize) -> usize {
+        self - other
     }
 }
 
@@ -123,7 +135,7 @@ impl<L: Leaf> Node<L> {
         let mut info = nodes[0].info();
         for child in &nodes[1..] {
             assert_eq!(height, child.height() + 1);
-            info = info.gather(child.info());
+            info = info.plus(child.info());
         }
         Node::Internal(InternalVal { info, height, nodes })
     }
@@ -188,7 +200,7 @@ impl<L: Leaf> Node<L> {
                 let mut idx = 0;
                 for node in &*int.nodes {
                     let mut next_info = cur_info;
-                    next_info = next_info.gather(node.info());
+                    next_info = next_info.plus(node.info());
                     if let Some(x) = f(idx, cur_info, Some(next_info)) {
                         return Ok(Some(x));
                     }
