@@ -15,7 +15,7 @@ pub struct Cursor<'a, L: Leaf + 'a> {
 }
 
 struct CursorStep<'a, L: Leaf + 'a> {
-    nodes: &'a Arc<NVec<Node<L>>>,
+    nodes: &'a RC<NVec<Node<L>>>,
     idx: usize, // index at which cursor descended
     info: L::Info, // cumulative info from the root node
 }
@@ -150,7 +150,7 @@ pub struct CursorMut<L: Leaf> {
 }
 
 struct CursorMutStep<L: Leaf> {
-    nodes: Arc<NVec<Node<L>>>,
+    nodes: RC<NVec<Node<L>>>,
     idx: usize,
 }
 
@@ -176,7 +176,7 @@ impl<L: Leaf> CursorMut<L> {
         match self.root {
             Some(ref mut node) => node.leaf_mut(),
             None => match self.steps.last_mut() {
-                Some(cstep) => Arc::make_mut(&mut cstep.nodes)[cstep.idx].leaf_mut(),
+                Some(cstep) => RC::make_mut(&mut cstep.nodes)[cstep.idx].leaf_mut(),
                 None => unreachable!("Bad CursorMut"),
             }
         }
@@ -191,7 +191,7 @@ impl<L: Leaf> From<CursorMut<L>> for Node<L> {
                 Some(CursorMutStep { nodes, .. }) => {
                     let mut root = Node::from_nodes(nodes);
                     for CursorMutStep { mut nodes, idx } in cursor.steps.into_iter().rev() {
-                        Arc::make_mut(&mut nodes)[idx] = root;
+                        RC::make_mut(&mut nodes)[idx] = root;
                         root = Node::from_nodes(nodes)
                     }
                     root

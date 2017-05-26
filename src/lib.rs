@@ -8,7 +8,6 @@ extern crate arrayvec;
 
 use std::cmp;
 use std::iter::FromIterator;
-use std::sync::Arc;
 
 use arrayvec::ArrayVec;
 
@@ -17,6 +16,7 @@ pub mod cursor;
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
 
+type RC<T> = std::sync::Arc<T>; // replace with std::rc::Rc<T> to get significant speed-up.
 type NVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
 
 /// A self-balancing B-Tree-like data structure.
@@ -58,7 +58,7 @@ pub enum Node<L: Leaf> {
 pub struct InternalVal<L: Leaf> {
     info: L::Info,
     height: usize, // > 0
-    nodes: Arc<NVec<Node<L>>>,
+    nodes: RC<NVec<Node<L>>>,
 }
 
 #[doc(hidden)]
@@ -118,7 +118,7 @@ impl<L: Leaf> Node<L> {
 
     /// All nodes should be at the same height, panics otherwise.
     #[inline]
-    pub fn from_nodes(nodes: Arc<NVec<Node<L>>>) -> Node<L> {
+    pub fn from_nodes(nodes: RC<NVec<Node<L>>>) -> Node<L> {
         let height = nodes[0].height() + 1;
         let mut info = nodes[0].info();
         for child in &nodes[1..] {
@@ -271,7 +271,7 @@ impl<L: Leaf> Node<L> {
             .map(|idx| (idx.unwrap(), info))
     }
 
-    fn children_raw(&self) -> &Arc<NVec<Node<L>>> {
+    fn children_raw(&self) -> &RC<NVec<Node<L>>> {
         match *self {
             Node::Internal(ref int) => &int.nodes,
             Node::Leaf(_) => panic!("children_raw called on a leaf."),
@@ -289,20 +289,20 @@ impl<L: Leaf> Node<L> {
         let mut nodes = NVec::new();
         nodes.push(node1);
         nodes.push(node2);
-        Node::from_nodes(Arc::new(nodes))
+        Node::from_nodes(RC::new(nodes))
     }
 
     fn merge_nodes(children1: &[Node<L>], children2: &[Node<L>]) -> Node<L> {
         let n_children = children1.len() + children2.len();
         let mut iter = children1.iter().chain(children2).cloned();
         if n_children <= MAX_CHILDREN {
-            Node::from_nodes(Arc::new(iter.collect()))
+            Node::from_nodes(RC::new(iter.collect()))
         } else {
             debug_assert!(n_children <= 2 * MAX_CHILDREN);
             // Make left heavy. Splitting at midpoint is another option
             let n_left = cmp::min(n_children - MIN_CHILDREN, MAX_CHILDREN);
-            let left = Node::from_nodes(Arc::new(iter.by_ref().take(n_left).collect()));
-            let right = Node::from_nodes(Arc::new(iter.collect()));
+            let left = Node::from_nodes(RC::new(iter.by_ref().take(n_left).collect()));
+            let right = Node::from_nodes(RC::new(iter.collect()));
             Node::merge_two(left, right)
         }
     }
@@ -344,7 +344,7 @@ impl<L: Leaf> FromIterator<L> for UniTree<L> {
         loop {
             let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
             if nodes.len() > 0 {
-                tree.push_back(Node::from_nodes(Arc::new(nodes)));
+                tree.push_back(Node::from_nodes(RC::new(nodes)));
             } else {
                 break;
             }
