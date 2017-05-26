@@ -59,11 +59,8 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         self.steps.clear();
     }
 
-    pub fn ascend(&mut self) -> Result<(), ()> {
-        match self.steps.pop() {
-            Some(_) => Ok(()),
-            None => Err(()),
-        }
+    pub fn ascend(&mut self) -> Option<&'a Node<L>> {
+        self.steps.pop().map(|cstep| &cstep.nodes[cstep.idx])
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`.
