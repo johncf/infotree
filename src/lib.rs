@@ -26,14 +26,11 @@ const CURSOR_MAX_HT: usize = 8;
 
 type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
 
-/// A self-balancing B-Tree-like data structure.
+/// A self-balancing copy-on-write tree data structure.
 ///
-/// InfoTree is a self-balancing data structure similar to B-Tree, except that each element in an
-/// internal node corresponds to exactly one branch (as opposed to having k elements and k+1
-/// branches). Another difference is that data is stored in leaf nodes similar to a B+Tree; but
-/// unlike B+Trees, there are no direct links between leaf nodes.
+/// All major operations are defined in either the `Node` structure, and the cursor types.
 ///
-/// Note: `InfoTree` uses `Arc` for its CoW capability.
+/// See [`Node`](struct.InfoTree.html) for more details.
 #[derive(Clone)]
 pub struct InfoTree<L: Leaf> {
     pub root: Option<Node<L>>,
@@ -52,16 +49,35 @@ pub trait Leaf: Clone {
 ///
 /// **Unstable:** Subject to change. `plus` may be renamed, `minus` may be removed.
 pub trait Info: Copy {
-    /// The operation used for combining two info objects.
+    /// The operation used for combining two info objects. Should be commutative and associative.
     fn plus(self, other: Self) -> Self;
 
     /// The inverse of plus such that `x.plus(y).minus(y) == x` for all `x` and `y`.
     ///
     /// Used to optimize certain tree traversal operations.
     fn minus(self, other: Self) -> Self;
+
+    // An alternative:
+    //   /// used when gathering info from children to parent nodes. commutative and associative.
+    //   fn gather_up(i1: Self, i2: Self) -> Self;
+    //
+    //   /// used when calculating the cumulative info from the root when traversing down a tree.
+    //   fn gather_down(cumulative: Option<Self>, next: Self) -> Self;
+    //
+    //   /// inverse of `gather_down`. If info on two adjacent nodes are i1 and i2, and c0 is the
+    //   /// cumulative info before i1, then the following condition should hold
+    //   ///     g(c0,i1) == g_inv( g(g(c0,i1),i2) , i2 , i1 )
+    //   fn gather_down_inv(cumulative: Self, cur: Self, prev: Option<Self>) -> Option<Self>;
 }
 
-/// A `InfoTree` node.
+/// The basic building block of a tree.
+///
+/// `Node` is similar to a B-Tree node, except that it has the same number of entries and branches
+/// (as opposed to k elements and k+1 branches in B-Trees). Another difference is that data is
+/// stored only in leaf nodes similar to a B+Tree; but unlike B+Trees, there are no direct links
+/// between leaf nodes.
+///
+/// Note: `Node` uses `Arc` for its CoW capability.
 #[derive(Clone)]
 pub enum Node<L: Leaf> {
     Internal(InternalVal<L>),
