@@ -15,15 +15,16 @@ struct CursorStep<'a, L: Leaf + 'a> {
     info: L::Info, // cumulative info from the root node
 }
 
-impl<'a, L> fmt::Debug for CursorStep<'a, L> where L: Leaf, L::Info: fmt::Display {
+impl<'a, L> fmt::Debug for CursorStep<'a, L> where L: Leaf, L::Info: fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CursorStep {{ nodes.len: {}, idx: {}, info: {} }}", self.nodes.len(), self.idx, self.info)
+        write!(f, "CursorStep {{ nodes.len: {}, idx: {}, info: {:?} }}",
+                  self.nodes.len(), self.idx, self.info)
     }
 }
 
 impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     /// Create a new cursor from a root node. `info_zero` will be the starting value of info at the
-    /// root. `info` is cumulatively gathered along the path to root for the node being pointed to
+    /// root. Info is cumulatively gathered along the path from root to the node being pointed to
     /// by the cursor. Therefore, `info_zero` should probably be the zero value of that type (the
     /// identity element of `Info::plus` operation).
     pub fn new(node: &Node<L>, info_zero: L::Info) -> Cursor<L> {
@@ -44,11 +45,11 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
 
     /// Returns the cumulative info along the shortest path from root to the current node.
     ///
-    /// Example 1: Cumulative info of the 4th node under root node is obtained by `Info::plus`-ing
-    /// the infos of first 3 nodes (plus the `info_zero` parameter passed at initialization).
+    /// Example 1: Cumulative info of the 4th node under root node is obtained by `Info::gather_down`
+    /// the infos of first 3 nodes.
     ///
     /// Example 2: Cumulative info of the second node under the 4th node under root node is that of
-    /// the 4th node (as in Example 1) `Info::plus`-ed with the first child node.
+    /// the 4th node (as in Example 1) `Info::gather_down` with the first child node.
     pub fn path_info(&self) -> L::Info {
         match self.steps.last() {
             Some(cstep) => cstep.info,
@@ -108,10 +109,10 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
             match steps_clone.pop() {
                 Some(CursorStep { nodes, mut idx, mut info }) => {
                     if idx + 1 < nodes.len() {
-                        info = info.plus(nodes[idx].info());
-                        idx += 1;
-                        steps_clone.push(CursorStep { nodes, idx, info });
                         self.steps = steps_clone;
+                        info = info.gather_down(nodes[idx].info());
+                        idx += 1;
+                        self.steps.push(CursorStep { nodes, idx, info });
                         while depth_delta > 0 {
                             // descend the left-most element
                             self.first_child().unwrap();
@@ -133,12 +134,15 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         let mut depth_delta = 0;
         loop {
             match steps_clone.pop() {
-                Some(CursorStep { nodes, mut idx, mut info }) => {
+                Some(CursorStep { nodes, mut idx, .. }) => {
                     if idx > 0 {
-                        idx -= 1;
-                        info = info.minus(nodes[idx].info());
-                        steps_clone.push(CursorStep { nodes, idx, info });
                         self.steps = steps_clone;
+                        idx -= 1;
+                        let mut info = self.path_info();
+                        for node in &nodes[..idx] {
+                            info = info.gather_down(node.info());
+                        }
+                        self.steps.push(CursorStep { nodes, idx, info });
                         while depth_delta > 0 {
                             // descend the right-most element
                             self.last_child().unwrap();

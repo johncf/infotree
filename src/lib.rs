@@ -47,28 +47,23 @@ pub trait Leaf: Clone {
 }
 
 /// Metadata that need to be gathered hierarchically over the tree.
-///
-/// **Unstable:** Subject to change. `plus` may be renamed, `minus` may be removed.
 pub trait Info: Copy {
-    /// The operation used for combining two info objects. Should be commutative and associative.
-    fn plus(self, other: Self) -> Self;
+    /// Used when gathering info from children to parent nodes. Should probably be commutative and
+    /// associative.
+    fn gather_up(self, other: Self) -> Self;
 
-    /// The inverse of plus such that `x.plus(y).minus(y) == x` for all `x` and `y`.
-    ///
-    /// Used to optimize certain tree traversal operations.
-    fn minus(self, other: Self) -> Self;
+    /// Used when traversing down the tree for computing the cumulative info from root.
+    fn gather_down(self, prev: Self) -> Self;
 
-    // An alternative:
-    //   /// used when gathering info from children to parent nodes. commutative and associative.
-    //   fn gather_up(i1: Self, i2: Self) -> Self;
+    // Inverse of `gather_down`. If the info on two adjacent nodes are `i1` and `i2`, and `c0` is
+    // the cumulative info before `i1`, then the following condition should hold:
     //
-    //   /// used when calculating the cumulative info from the root when traversing down a tree.
-    //   fn gather_down(cumulative: Option<Self>, next: Self) -> Self;
+    //     g(c0,i1) == g_inv( g(g(c0,i1),i2) , i2 , i1 )
     //
-    //   /// inverse of `gather_down`. If info on two adjacent nodes are i1 and i2, and c0 is the
-    //   /// cumulative info before i1, then the following condition should hold
-    //   ///     g(c0,i1) == g_inv( g(g(c0,i1),i2) , i2 , i1 )
-    //   fn gather_down_inv(cumulative: Self, cur: Self, prev: Option<Self>) -> Option<Self>;
+    // where `g` is `gather_down` and `g_inv` is `gather_down_inv`.
+    //
+    // `None` should be returned only if `prev` is `None`, otherwise traversal may panic.
+    //fn gather_down_inv(self, curr: Self, prev: Self) -> Self;
 }
 
 /// The basic building block of a tree.
@@ -102,19 +97,19 @@ pub struct LeafVal<L: Leaf> {
 
 impl Info for () {
     #[inline]
-    fn plus(self, _: ()) { }
+    fn gather_up(self, _: ()) { }
     #[inline]
-    fn minus(self, _: ()) { }
+    fn gather_down(self, _: ()) { }
 }
 
 impl Info for usize {
     #[inline]
-    fn plus(self, other: usize) -> usize {
+    fn gather_up(self, other: usize) -> usize {
         self + other
     }
     #[inline]
-    fn minus(self, other: usize) -> usize {
-        self - other
+    fn gather_down(self, other: usize) -> usize {
+        self + other
     }
 }
 
@@ -134,7 +129,7 @@ impl<L: Leaf> Node<L> {
         let mut info = nodes[0].info();
         for child in &nodes[1..] {
             assert_eq!(height, child.height() + 1);
-            info = info.plus(child.info());
+            info = info.gather_up(child.info());
         }
         Node::Internal(InternalVal { info, height, nodes })
     }
@@ -193,11 +188,11 @@ impl<L: Leaf> Node<L> {
     pub fn gather_traverse<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
         where F: FnMut(L::Info, L::Info) -> bool
     {
-        let mut cur_info = start;
         match self {
             &Node::Internal(ref int) => {
+                let mut cur_info = start;
                 for (idx, node) in int.nodes.iter().enumerate() {
-                    let next_info = cur_info.plus(node.info());
+                    let next_info = cur_info.gather_down(node.info());
                     if f(cur_info, next_info) {
                         return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
                     }
@@ -216,17 +211,19 @@ impl<L: Leaf> Node<L> {
     pub fn gather_traverse_rev<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
         where F: FnMut(L::Info, L::Info) -> bool
     {
-        // an alternative implementation without using minus is to calculate all info beforehand
-        // into an NVec<L::Info> and zip iterate them with child nodes
-        let mut next_info = start.plus(self.info());
         match self {
             &Node::Internal(ref int) => {
-                for (idx, node) in int.nodes.iter().enumerate().rev() {
-                    let cur_info = next_info.minus(node.info());
+                let mut info = start;
+                let mut info_cache = NVec::new();
+                for child in &*int.nodes {
+                    info_cache.push(info);
+                    info = info.gather_down(child.info());
+                }
+                for (idx, (node, cur_info)) in int.nodes.iter().zip(info_cache).enumerate().rev() {
+                    let next_info = cur_info.gather_down(node.info());
                     if f(cur_info, next_info) {
                         return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
                     }
-                    next_info = cur_info;
                 }
                 Err(TraverseError::AllFalse)
             }
