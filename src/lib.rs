@@ -8,6 +8,7 @@ extern crate arrayvec;
 
 use std::cmp;
 use std::iter::FromIterator;
+use std::ops::{Deref, DerefMut};
 
 use arrayvec::ArrayVec;
 
@@ -114,33 +115,6 @@ impl Info for usize {
     #[inline]
     fn minus(self, other: usize) -> usize {
         self - other
-    }
-}
-
-use std::ops::{Deref, DerefMut};
-
-/// A wrapper type for a mutably borrowed leaf from a `Node`.
-///
-/// When `LeafMut` gets dropped, it will update the `Node` to reflect changes in info.
-pub struct LeafMut<'a, L: 'a + Leaf>(&'a mut LeafVal<L>);
-
-impl<'a, L: Leaf> Deref for LeafMut<'a, L> {
-    type Target = L;
-
-    fn deref(&self) -> &L {
-        &self.0.val
-    }
-}
-
-impl<'a, L: Leaf> DerefMut for LeafMut<'a, L> {
-    fn deref_mut(&mut self) -> &mut L {
-        &mut self.0.val
-    }
-}
-
-impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
-    fn drop(&mut self) {
-        self.0.info = self.0.val.compute_info();
     }
 }
 
@@ -303,6 +277,31 @@ impl<L: Leaf> Node<L> {
                 }
             }
         }
+    }
+}
+
+/// A wrapper type for a mutably borrowed leaf from a `Node`.
+///
+/// When `LeafMut` gets dropped, it will update the `Node` to reflect changes in info.
+pub struct LeafMut<'a, L: 'a + Leaf>(&'a mut LeafVal<L>);
+
+impl<'a, L: Leaf> Deref for LeafMut<'a, L> {
+    type Target = L;
+
+    fn deref(&self) -> &L {
+        &self.0.val
+    }
+}
+
+impl<'a, L: Leaf> DerefMut for LeafMut<'a, L> {
+    fn deref_mut(&mut self) -> &mut L {
+        &mut self.0.val
+    }
+}
+
+impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
+    fn drop(&mut self) {
+        self.0.info = self.0.val.compute_info();
     }
 }
 
