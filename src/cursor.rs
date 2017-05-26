@@ -110,7 +110,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
                 Some(CursorStep { nodes, mut idx, mut info }) => {
                     if idx + 1 < nodes.len() {
                         self.steps = steps_clone;
-                        info = Info::gather_down(info, nodes[idx].info());
+                        info = info.gather_down(nodes[idx].info());
                         idx += 1;
                         self.steps.push(CursorStep { nodes, idx, info });
                         while depth_delta > 0 {
@@ -140,7 +140,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
                         idx -= 1;
                         let mut info = self.path_info();
                         for node in &nodes[..idx] {
-                            info = Info::gather_down(info, node.info());
+                            info = info.gather_down(node.info());
                         }
                         self.steps.push(CursorStep { nodes, idx, info });
                         while depth_delta > 0 {
