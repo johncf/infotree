@@ -53,7 +53,11 @@ pub trait Info: Copy {
     fn gather_up(self, other: Self) -> Self;
 
     /// Used when traversing down the tree for computing the cumulative info from root.
-    fn gather_down(self, prev: Self) -> Self;
+    ///
+    /// The default implementation simply calls `gather_up`.
+    fn gather_down(self, prev: Self) -> Self {
+        self.gather_up(prev)
+    }
 
     // Inverse of `gather_down`. If the info on two adjacent nodes are `i1` and `i2`, and `c0` is
     // the cumulative info before `i1`, then the following condition should hold:
@@ -98,17 +102,11 @@ pub struct LeafVal<L: Leaf> {
 impl Info for () {
     #[inline]
     fn gather_up(self, _: ()) { }
-    #[inline]
-    fn gather_down(self, _: ()) { }
 }
 
 impl Info for usize {
     #[inline]
     fn gather_up(self, other: usize) -> usize {
-        self + other
-    }
-    #[inline]
-    fn gather_down(self, other: usize) -> usize {
         self + other
     }
 }
