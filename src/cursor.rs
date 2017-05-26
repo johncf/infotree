@@ -72,27 +72,32 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    /// Descend the tree once, on the child for which `f` returns `true`. If `f` returned `false`
-    /// on all children, descends on the last child.
+    /// Descend the tree once, on the child for which `f` returns `true`.
+    ///
+    /// Returns `None` if `f` returned `false` on all children, or if it was a leaf node.
     ///
     /// Panics if tree depth is greater than 8.
-    pub fn descend<F>(&mut self, mut f: F) -> Result<(), ()>
+    pub fn descend<F>(&mut self, mut f: F, reverse: bool) -> Option<&'a Node<L>>
         where F: FnMut(L::Info, L::Info) -> bool
     {
         let cur_node = self.node();
         let cur_info = self.info();
-        match cur_node.traverse_with_default_end(cur_info, |i, j| f(i, j)) {
-            Ok((idx, next_info)) => {
-                if self.steps.push(CursorStep {
-                                       nodes: cur_node.children_raw(),
-                                       idx: idx,
-                                       info: next_info,
-                                   }).is_some() { // ArrayVec::push(e) returns Some(e) on overflow!
-                    panic!("Depth greater than 8!")
-                }
-                Ok(())
+        let traverse_result = if reverse {
+            cur_node.gather_traverse_rev(cur_info, |i, j| f(i, j))
+        } else {
+            cur_node.gather_traverse(cur_info, |i, j| f(i, j))
+        };
+        match traverse_result {
+            Ok(TraverseSummary { child, info, index }) => {
+                // ArrayVec::push(e) returns Some(e) on overflow!
+                assert!(self.steps.push(CursorStep {
+                                            nodes: cur_node.children_raw(),
+                                            idx: index,
+                                            info: info,
+                                        }).is_none(), "Tree depth greater than 8!");
+                Some(child)
             }
-            Err(()) => Err(()),
+            Err(_) => None,
         }
     }
 
@@ -152,39 +157,21 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    /// Recursively descend the tree while cumulatively gathering info, until either:
-    /// - `f` returns `true` on a leaf node (current node is set to that leaf), or
-    /// - `f` returns `false` on all leaf nodes (current node is set to the last leaf).
-    ///
-    /// Panics if tree depth is greater than 8.
-    pub fn recursive_descend<F>(&mut self, mut f: F)
-        where F: FnMut(L::Info, L::Info) -> bool
-    {
-        // TODO consider stopping when `f` returns false for all nodes (with an error?)
-        loop {
-            match self.descend(|i, j| f(i, j)) {
-                Ok(_) => {}
-                Err(_) => return,
-            }
-        }
+    pub fn first_child(&mut self) -> Option<&'a Node<L>> {
+        self.descend(|_, _| true, false)
     }
 
-    pub fn first_child(&mut self) -> Result<(), ()> {
-        self.descend(|_, _| true)
-    }
-
-    pub fn last_child(&mut self) -> Result<(), ()> {
-        // TODO there's scope for optimization with Info::minus
-        self.descend(|_, _| false)
+    pub fn last_child(&mut self) -> Option<&'a Node<L>> {
+        self.descend(|_, _| true, true)
     }
 
     pub fn first_leaf_below(&mut self) -> &'a L {
-        while let Ok(_) = self.first_child() {}
+        while let Some(_) = self.first_child() {}
         self.node().leaf().unwrap()
     }
 
     pub fn last_leaf_below(&mut self) -> &'a L {
-        while let Ok(_) = self.last_child() {}
+        while let Some(_) = self.last_child() {}
         self.node().leaf().unwrap()
     }
 
@@ -285,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn next_leaf() {
+    fn leaf_traversal() {
         let mut tree = UniTree::new();
         for i in 1..21 {
             tree.push_back(Node::from_leaf(TestLeaf(i)));

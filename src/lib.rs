@@ -189,27 +189,49 @@ impl<L: Leaf> Node<L> {
     }
 
     /// Traverse this node conditioned on a callback which is provided with cumulatively gathered
-    /// info from left to right. Returns `Err(())` if called on a leaf.
+    /// info from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
     #[inline]
-    pub fn gather_traverse<T, F>(&self, start: L::Info, mut f: F) -> Result<Option<T>, ()>
-        where F: FnMut(usize, L::Info, Option<L::Info>) -> Option<T>
+    pub fn gather_traverse<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
+        where F: FnMut(L::Info, L::Info) -> bool
     {
         let mut cur_info = start;
         match self {
             &Node::Internal(ref int) => {
-                let mut idx = 0;
-                for node in &*int.nodes {
-                    let mut next_info = cur_info;
-                    next_info = next_info.plus(node.info());
-                    if let Some(x) = f(idx, cur_info, Some(next_info)) {
-                        return Ok(Some(x));
+                for (idx, node) in int.nodes.iter().enumerate() {
+                    let next_info = cur_info.plus(node.info());
+                    if f(cur_info, next_info) {
+                        return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
                     }
                     cur_info = next_info;
-                    idx += 1;
                 }
-                Ok(f(idx, cur_info, None))
+                Err(TraverseError::AllFalse)
             }
-            &Node::Leaf(_) => Err(()),
+            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
+        }
+    }
+
+    /// Same as `gather_traverse` but in reverse. The `Info` values passed to `f` will be exactly
+    /// the same for corresponding nodes as calling `gather_traverse` with the exact same parameter
+    /// `start`.
+    #[inline]
+    pub fn gather_traverse_rev<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
+        where F: FnMut(L::Info, L::Info) -> bool
+    {
+        // an alternative implementation without using minus is to calculate all info beforehand
+        // into an NVec<L::Info> and zip iterate them with child nodes
+        let mut next_info = start.plus(self.info());
+        match self {
+            &Node::Internal(ref int) => {
+                for (idx, node) in int.nodes.iter().enumerate().rev() {
+                    let cur_info = next_info.minus(node.info());
+                    if f(cur_info, next_info) {
+                        return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
+                    }
+                    next_info = cur_info;
+                }
+                Err(TraverseError::AllFalse)
+            }
+            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
         }
     }
 
@@ -259,32 +281,20 @@ impl<L: Leaf> Node<L> {
     }
 }
 
-impl<L: Leaf> Node<L> {
-    // Returns `(index, accu_info)` of the node at which `f` returned `true`. If all were `false`,
-    // this returns `(index, accu_info)` of the last child in the node. Returns `Err` if called on
-    // a leaf node.
-    fn traverse_with_default_end<F>(&self, start: L::Info, mut f: F) -> Result<(usize, L::Info), ()>
-        where F: FnMut(L::Info, L::Info) -> bool
-    {
-        // TODO there's scope for simplifying using Info::minus
-        // This may not exactly be what's desired
-        let mut info = start;
-        self.gather_traverse(info,
-                             |idx, info_beg, info_end| {
-                                 match info_end {
-                                     Some(info_end) => {
-                                         info = info_beg;
-                                         match f(info_beg, info_end) {
-                                             true => Some(idx),
-                                             false => None,
-                                         }
-                                     }
-                                     None => Some(idx - 1), // the "default_end"
-                                 }
-                             })
-            .map(|idx| (idx.unwrap(), info))
-    }
+pub type TraverseResult<'a, L> = Result<TraverseSummary<'a, L>, TraverseError>;
 
+pub struct TraverseSummary<'a, L: Leaf + 'a> {
+    child: &'a Node<L>,
+    info: L::Info,
+    index: usize,
+}
+
+pub enum TraverseError {
+    AllFalse,
+    IsLeaf,
+}
+
+impl<L: Leaf> Node<L> {
     fn children_raw(&self) -> &RC<NVec<Node<L>>> {
         match *self {
             Node::Internal(ref int) => &int.nodes,
