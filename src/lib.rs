@@ -188,9 +188,9 @@ impl<L: Leaf> Node<L> {
     pub fn gather_traverse<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
         where F: FnMut(L::Info, L::Info) -> bool
     {
-        let mut cur_info = start;
         match self {
             &Node::Internal(ref int) => {
+                let mut cur_info = start;
                 for (idx, node) in int.nodes.iter().enumerate() {
                     let next_info = cur_info.gather_down(node.info());
                     if f(cur_info, next_info) {
@@ -214,11 +214,11 @@ impl<L: Leaf> Node<L> {
         match self {
             &Node::Internal(ref int) => {
                 let mut info = start;
-                let info_cache: NVec<_> = int.nodes.iter().map(|child| {
-                    let ret = info;
+                let mut info_cache = NVec::new();
+                for child in &*int.nodes {
+                    info_cache.push(info);
                     info = info.gather_down(child.info());
-                    ret
-                }).collect();
+                }
                 for (idx, (node, cur_info)) in int.nodes.iter().zip(info_cache).enumerate().rev() {
                     let next_info = cur_info.gather_down(node.info());
                     if f(cur_info, next_info) {
