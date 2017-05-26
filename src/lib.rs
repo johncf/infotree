@@ -49,6 +49,8 @@ pub trait Leaf: Clone {
 }
 
 /// Metadata that need to be gathered hierarchically over the tree.
+///
+/// **Unstable:** Subject to change. `plus` may be renamed, `minus` may be removed.
 pub trait Info: Copy {
     /// The operation used for combining two info objects.
     fn plus(self, other: Self) -> Self;

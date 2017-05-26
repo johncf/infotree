@@ -3,18 +3,21 @@ use super::*;
 pub struct CursorMut<L: Leaf> {
     root: Option<Node<L>>,
     steps: CVec<CursorMutStep<L>>,
+    info_zero: L::Info,
 }
 
 struct CursorMutStep<L: Leaf> {
     nodes: RC<NVec<Node<L>>>,
     idx: usize,
+    info: L::Info,
 }
 
 impl<L: Leaf> CursorMut<L> {
-    pub fn new(node: Node<L>) -> CursorMut<L> {
+    pub fn new(node: Node<L>, info_zero: L::Info) -> CursorMut<L> {
         CursorMut {
             root: Some(node),
             steps: CVec::new(),
+            info_zero: info_zero,
         }
     }
 
@@ -25,6 +28,16 @@ impl<L: Leaf> CursorMut<L> {
                 Some(cstep) => Some(&mut RC::make_mut(&mut cstep.nodes)[cstep.idx]),
                 None => None,
             }
+        }
+    }
+
+    /// Returns the cumulative info along the shortest path from root to the current node.
+    ///
+    /// See `Cursor` for detailed explanation.
+    pub fn path_info(&self) -> L::Info {
+        match self.steps.last() {
+            Some(cstep) => cstep.info,
+            None => self.info_zero,
         }
     }
 
@@ -49,4 +62,15 @@ impl<L: Leaf> CursorMut<L> {
     pub fn reset(&mut self) {
         while let Some(_) = self.ascend() {}
     }
+
+    //for both insert operations, the cursor should point to the inserted node.
+    //pub fn insert(&mut self) {}
+    //pub fn insert_after(&mut self) {}
+
+    //the cursor should point to the adjacent node (preferrably the right, with no change in position)
+    //pub fn delete(&mut self) {}
+
+    //split the tree into two trees; the current node and all leaves to its right should be
+    //included in the second tree.
+    //pub fn split(self) -> (Node<L>, Node<L>) {}
 }

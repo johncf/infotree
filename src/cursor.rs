@@ -42,8 +42,14 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    /// Returns the cumulative info (from the root) for the current node.
-    pub fn info(&self) -> L::Info {
+    /// Returns the cumulative info along the shortest path from root to the current node.
+    ///
+    /// Example 1: Cumulative info of the 4th node under root node is obtained by `Info::plus`-ing
+    /// the infos of first 3 nodes (plus the `info_zero` parameter passed at initialization).
+    ///
+    /// Example 2: Cumulative info of the second node under the 4th node under root node is that of
+    /// the 4th node (as in Example 1) `Info::plus`-ed with the first child node.
+    pub fn path_info(&self) -> L::Info {
         match self.steps.last() {
             Some(cstep) => cstep.info,
             None => self.info_zero,
@@ -72,7 +78,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         where F: FnMut(L::Info, L::Info) -> bool
     {
         let cur_node = self.node();
-        let cur_info = self.info();
+        let cur_info = self.path_info();
         let traverse_result = if reverse {
             cur_node.gather_traverse_rev(cur_info, |i, j| f(i, j))
         } else {
@@ -198,10 +204,10 @@ mod tests {
         }
         let mut cursor = Cursor::new(root_of(&tree), 0);
         assert_eq!(*cursor.first_leaf_below(), TestLeaf(1));
-        assert_eq!(cursor.info(), 0);
+        assert_eq!(cursor.path_info(), 0);
         cursor.reset();
         assert_eq!(*cursor.last_leaf_below(), TestLeaf(20));
-        assert_eq!(cursor.info(), 19*20/2, "{:?}", cursor.steps);
+        assert_eq!(cursor.path_info(), 19*20/2, "{:?}", cursor.steps);
     }
 
     #[test]
