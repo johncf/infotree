@@ -14,6 +14,7 @@ pub struct Cursor<'a, L: Leaf + 'a> {
     info_zero: L::Info,
 }
 
+#[derive(Clone)]
 struct CursorStep<'a, L: Leaf + 'a> {
     nodes: &'a RC<NVec<Node<L>>>,
     idx: usize, // index at which cursor descended
@@ -95,6 +96,62 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
+    /// Make the cursor point to the next element at the same depth.
+    ///
+    /// If there is no next element, the cursor remains in the original position.
+    pub fn next_node(&mut self) -> Option<&'a Node<L>> {
+        let mut steps_clone = self.steps.clone();
+        let mut depth_delta = 0;
+        loop {
+            match steps_clone.pop() {
+                Some(CursorStep { nodes, mut idx, mut info }) => {
+                    if idx + 1 < nodes.len() {
+                        info = info.plus(nodes[idx].info());
+                        idx += 1;
+                        steps_clone.push(CursorStep { nodes, idx, info });
+                        self.steps = steps_clone;
+                        while depth_delta > 0 {
+                            // descend the left-most element
+                            self.first_child().unwrap();
+                            depth_delta -= 1;
+                        }
+                        return Some(self.node());
+                    } else {
+                        depth_delta += 1;
+                    }
+                }
+                None => return None, // at the root
+            }
+        }
+    }
+
+    /// Make the cursor point to the previous element at the same depth.
+    pub fn prev_node(&mut self) -> Option<&'a Node<L>> {
+        let mut steps_clone = self.steps.clone();
+        let mut depth_delta = 0;
+        loop {
+            match steps_clone.pop() {
+                Some(CursorStep { nodes, mut idx, mut info }) => {
+                    if idx > 0 {
+                        idx -= 1;
+                        info = info.minus(nodes[idx].info());
+                        steps_clone.push(CursorStep { nodes, idx, info });
+                        self.steps = steps_clone;
+                        while depth_delta > 0 {
+                            // descend the right-most element
+                            self.last_child().unwrap();
+                            depth_delta -= 1;
+                        }
+                        return Some(self.node());
+                    } else {
+                        depth_delta += 1;
+                    }
+                }
+                None => return None, // at the root
+            }
+        }
+    }
+
     /// Recursively descend the tree while cumulatively gathering info, until either:
     /// - `f` returns `true` on a leaf node (current node is set to that leaf), or
     /// - `f` returns `false` on all leaf nodes (current node is set to the last leaf).
@@ -103,6 +160,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     pub fn recursive_descend<F>(&mut self, mut f: F)
         where F: FnMut(L::Info, L::Info) -> bool
     {
+        // TODO consider stopping when `f` returns false for all nodes (with an error?)
         loop {
             match self.descend(|i, j| f(i, j)) {
                 Ok(_) => {}
@@ -111,13 +169,22 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
+    pub fn first_child(&mut self) -> Result<(), ()> {
+        self.descend(|_, _| true)
+    }
+
+    pub fn last_child(&mut self) -> Result<(), ()> {
+        // TODO there's scope for optimization with Info::minus
+        self.descend(|_, _| false)
+    }
+
     pub fn first_leaf_below(&mut self) -> &'a L {
-        self.recursive_descend(|_, _| true);
+        while let Ok(_) = self.first_child() {}
         self.node().leaf().unwrap()
     }
 
     pub fn last_leaf_below(&mut self) -> &'a L {
-        self.recursive_descend(|_, _| false);
+        while let Ok(_) = self.last_child() {}
         self.node().leaf().unwrap()
     }
 
@@ -126,20 +193,16 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     pub fn next_leaf(&mut self) -> Option<&'a L> {
         match self.node().leaf() {
             None => Some(self.first_leaf_below()),
-            Some(_) => { // TODO
-                unimplemented!()
-            }
+            Some(_) => self.next_node().map(|node| node.leaf().unwrap()),
         }
     }
 
-    /// If the current node is a leaf, try to fetch the next leaf in order, otherwise it calls
+    /// If the current node is a leaf, try to fetch the previous leaf in order, otherwise it calls
     /// `last_leaf_below`.
     pub fn prev_leaf(&mut self) -> Option<&'a L> {
         match self.node().leaf() {
             None => Some(self.last_leaf_below()),
-            Some(_) => { // TODO
-                unimplemented!()
-            }
+            Some(_) => self.prev_node().map(|node| node.leaf().unwrap()),
         }
     }
 }
@@ -219,6 +282,24 @@ mod tests {
         cursor.reset();
         assert_eq!(*cursor.last_leaf_below(), TestLeaf(20));
         assert_eq!(cursor.info(), 19*20/2, "{:?}", cursor.steps);
+    }
+
+    #[test]
+    fn next_leaf() {
+        let mut tree = UniTree::new();
+        for i in 1..21 {
+            tree.push_back(Node::from_leaf(TestLeaf(i)));
+        }
+        let mut cursor = Cursor::new(root_of(&tree), 0);
+        for i in 1..21 {
+            assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
+        }
+        assert_eq!(cursor.next_leaf(), None);
+        cursor.reset();
+        for i in (1..21).rev() {
+            assert_eq!(cursor.prev_leaf(), Some(&TestLeaf(i)));
+        }
+        assert_eq!(cursor.prev_leaf(), None);
     }
 
     // FIXME need more tests

@@ -266,6 +266,8 @@ impl<L: Leaf> Node<L> {
     fn traverse_with_default_end<F>(&self, start: L::Info, mut f: F) -> Result<(usize, L::Info), ()>
         where F: FnMut(L::Info, L::Info) -> bool
     {
+        // TODO there's scope for simplifying using Info::minus
+        // This may not exactly be what's desired
         let mut info = start;
         self.gather_traverse(info,
                              |idx, info_beg, info_end| {
