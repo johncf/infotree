@@ -12,13 +12,13 @@ pub struct Cursor<'a, L: Leaf + 'a> {
 struct CursorStep<'a, L: Leaf + 'a> {
     nodes: &'a RC<NVec<Node<L>>>,
     idx: usize, // index at which cursor descended
-    info: L::Info, // cumulative info from the root node
+    path_info: L::Info, // cumulative info from the root node
 }
 
 impl<'a, L> fmt::Debug for CursorStep<'a, L> where L: Leaf, L::Info: fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CursorStep {{ nodes.len: {}, idx: {}, info: {:?} }}",
-                  self.nodes.len(), self.idx, self.info)
+                  self.nodes.len(), self.idx, self.path_info)
     }
 }
 
@@ -53,7 +53,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     /// the 4th node (as in Example 1) `Info::gather_down`-ed with the first child node.
     pub fn path_info(&self) -> L::Info {
         match self.steps.last() {
-            Some(cstep) => cstep.info,
+            Some(cstep) => cstep.path_info,
             None => self.info_zero,
         }
     }
@@ -105,9 +105,9 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    fn descend_raw(&mut self, nodes: &'a RC<NVec<Node<L>>>, idx: usize, info: L::Info) {
+    fn descend_raw(&mut self, nodes: &'a RC<NVec<Node<L>>>, idx: usize, path_info: L::Info) {
         // ArrayVec::push(e) returns Some(e) on overflow!
-        assert!(self.steps.push(CursorStep { nodes, idx, info }).is_none());
+        assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
     }
 
     /// Make the cursor point to the next element at the same depth.
@@ -118,12 +118,12 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         let mut depth_delta = 0;
         loop {
             match steps_clone.pop() {
-                Some(CursorStep { nodes, mut idx, mut info }) => {
+                Some(CursorStep { nodes, mut idx, mut path_info }) => {
                     if idx + 1 < nodes.len() {
                         self.steps = steps_clone;
-                        info = info.gather_down(nodes[idx].info());
+                        path_info = path_info.gather_down(nodes[idx].info());
                         idx += 1;
-                        self.steps.push(CursorStep { nodes, idx, info });
+                        self.steps.push(CursorStep { nodes, idx, path_info });
                         while depth_delta > 0 {
                             // descend the left-most element
                             self.descend(0).unwrap();
@@ -151,11 +151,11 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
                     if idx > 0 {
                         self.steps = steps_clone;
                         idx -= 1;
-                        let mut info = self.path_info();
+                        let mut path_info = self.path_info();
                         for node in &nodes[..idx] {
-                            info = info.gather_down(node.info());
+                            path_info = path_info.gather_down(node.info());
                         }
-                        self.steps.push(CursorStep { nodes, idx, info });
+                        self.steps.push(CursorStep { nodes, idx, path_info });
                         while depth_delta > 0 {
                             // descend the right-most element
                             self.descend_last(0).unwrap();

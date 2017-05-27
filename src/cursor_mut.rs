@@ -13,13 +13,13 @@ pub struct CursorMut<L: Leaf> {
 struct CursorMutStep<L: Leaf> {
     nodes: RC<NVec<Node<L>>>,
     idx: usize,
-    info: L::Info,
+    path_info: L::Info,
 }
 
 impl<L> fmt::Debug for CursorMutStep<L> where L: Leaf, L::Info: fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CursorMutStep {{ nodes.len: {}, idx: {}, info: {:?} }}",
-                  self.nodes.len(), self.idx, self.info)
+                  self.nodes.len(), self.idx, self.path_info)
     }
 }
 
@@ -54,7 +54,7 @@ impl<L: Leaf> CursorMut<L> {
     /// See `Cursor` for detailed explanation. This is an O(1) operation too.
     pub fn path_info(&self) -> L::Info {
         match self.steps.last() {
-            Some(cstep) => cstep.info,
+            Some(cstep) => cstep.path_info,
             None => self.info_zero,
         }
     }
@@ -225,11 +225,11 @@ impl<L: Leaf> CursorMut<L> {
         }
     }
 
-    fn descend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize, info: L::Info) {
+    fn descend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize, path_info: L::Info) {
         debug_assert!(self.cur_node.is_none());
         let cur_node = RC::make_mut(&mut nodes).remove(idx).unwrap();
         self.cur_node = Some(cur_node);
-        let _res = self.steps.push(CursorMutStep { nodes, idx, info });
+        let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
         assert!(_res.is_none());
     }
 }

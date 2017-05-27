@@ -199,7 +199,7 @@ impl<L: Leaf> Node<L> {
     /// - position (zero-based from left)
     /// - remaining (= total - position - 1)
     #[inline]
-    pub fn gather_traverse<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
+    pub fn gather_traverse<F>(&self, start: L::Info, mut f: F) -> TraverseResult<L>
         where F: FnMut(L::Info, L::Info, usize, usize) -> bool
     {
         match self {
