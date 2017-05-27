@@ -12,8 +12,11 @@ use std::ops::{Deref, DerefMut};
 
 use arrayvec::ArrayVec;
 
-pub mod cursor;
-pub mod cursor_mut;
+mod cursor;
+mod cursor_mut;
+
+pub use cursor::Cursor;
+pub use cursor_mut::CursorMut;
 
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
@@ -298,6 +301,13 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(ref int) => &int.nodes,
             Node::Leaf(_) => panic!("children_raw called on a leaf."),
+        }
+    }
+
+    fn into_children_raw(self) -> RC<NVec<Node<L>>> {
+        match self {
+            Node::Internal(int) => int.nodes,
+            Node::Leaf(_) => panic!("into_children_raw called on a leaf."),
         }
     }
 

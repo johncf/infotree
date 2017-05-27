@@ -43,7 +43,8 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         }
     }
 
-    /// Returns the cumulative info along the shortest path from root to the current node.
+    /// Returns the cumulative info along the shortest path from root to the current node. This is
+    /// an O(1) operation.
     ///
     /// Example 1: Cumulative info of the 4th node under root node is obtained by applying
     /// `Info::gather_down` to the infos of first 3 nodes in succession, starting with `info_zero`.
