@@ -190,6 +190,31 @@ impl<L: Leaf> Node<L> {
         }
     }
 
+    /// Traverse this node conditioned on a callback which is provided with info from each child node
+    /// from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
+    ///
+    /// Arguments to `f`:
+    /// - child node info
+    /// - position (zero-based from left)
+    /// - remaining (= total - position - 1)
+    #[inline]
+    pub fn traverse<F>(&self, mut f: F) -> Result<(&Node<L>, usize), TraverseError>
+        where F: FnMut(L::Info, usize, usize) -> bool
+    {
+        match self {
+            &Node::Internal(ref int) => {
+                let n_children = int.nodes.len();
+                for (idx, node) in int.nodes.iter().enumerate() {
+                    if f(node.info(), idx, n_children - idx - 1) {
+                        return Ok((node, idx));
+                    }
+                }
+                Err(TraverseError::AllFalse)
+            }
+            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
+        }
+    }
+
     /// Traverse this node conditioned on a callback which is provided with cumulatively gathered
     /// info from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
     ///
@@ -202,20 +227,17 @@ impl<L: Leaf> Node<L> {
     pub fn gather_traverse<F>(&self, start: L::Info, mut f: F) -> TraverseResult<L>
         where F: FnMut(L::Info, L::Info, usize, usize) -> bool
     {
-        match self {
-            &Node::Internal(ref int) => {
-                let mut cur_info = start;
-                let n_children = int.nodes.len();
-                for (idx, node) in int.nodes.iter().enumerate() {
-                    let next_info = cur_info.gather_down(node.info());
-                    if f(cur_info, next_info, idx, n_children - idx - 1) {
-                        return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
-                    }
-                    cur_info = next_info;
-                }
-                Err(TraverseError::AllFalse)
+        let mut cur_info = start;
+        let res = self.traverse(|node_info, pos, rem| {
+            let next_info = cur_info.gather_down(node_info);
+            match f(cur_info, next_info, pos, rem) {
+                true => true,
+                false => { cur_info = next_info; false }
             }
-            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
+        });
+        match res {
+            Ok((node, idx)) => Ok(TraverseSummary { child: node, info: cur_info, index: idx }),
+            Err(e) => Err(e),
         }
     }
 
@@ -293,9 +315,9 @@ impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
 pub type TraverseResult<'a, L> = Result<TraverseSummary<'a, L>, TraverseError>;
 
 pub struct TraverseSummary<'a, L: Leaf + 'a> {
-    child: &'a Node<L>,
-    info: L::Info,
-    index: usize,
+    pub child: &'a Node<L>,
+    pub info: L::Info,
+    pub index: usize,
 }
 
 pub enum TraverseError {
