@@ -130,6 +130,10 @@ impl<L: Leaf> CursorMut<L> {
     ///
     /// It is unspecified where the cursor will be after this operation. The user should ensure
     /// that the cursor is at the correct location after this.
+    ///
+    /// _Side node:_ As per the current implementation, the cursor will either be pointing to the
+    /// newly inserted node, or be to an ancestor of the new node, or to one directly on the right
+    /// of an ancestor node. But this behavior may change in future.
     pub fn insert(&mut self, leaf: L) {
         while let Some(_) = self.descend(0) {}
         self.insert_raw(Node::from_leaf(leaf), false);
@@ -141,7 +145,7 @@ impl<L: Leaf> CursorMut<L> {
         self.insert_raw(Node::from_leaf(leaf), true);
     }
 
-    /// Remove the current node. If the cursor is empty, returns `None`.
+    /// Remove the current node and return it. If the cursor is empty, return `None`.
     ///
     /// It is unspecified where the cursor will be after this operation. The user should ensure
     /// that the cursor is at the correct location after this.
@@ -156,9 +160,11 @@ impl<L: Leaf> CursorMut<L> {
         unimplemented!()
     }
 
-    // split the tree into two trees; the current node and all leaves to its right should be
-    // included in the second tree.
-    //pub fn split(self) -> (Node<L>, Node<L>) {}
+    /// Split the tree into two, and return the right part of it. The current node, all leaves
+    /// under it, as well as all leaves to the right of it will be included in the returned tree.
+    pub fn split_off(&mut self) -> Node<L> {
+        unimplemented!()
+    }
 }
 
 fn insert_maybe_split<L: Leaf>(
