@@ -182,46 +182,26 @@ impl<L: Leaf> Node<L> {
 
     /// Traverse this node conditioned on a callback which is provided with cumulatively gathered
     /// info from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
+    ///
+    /// Arguments to `f`:
+    /// - cumulative info before
+    /// - cumulative info after
+    /// - position (zero-based from left)
+    /// - remaining (= total - position - 1)
     #[inline]
     pub fn gather_traverse<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
-        where F: FnMut(L::Info, L::Info) -> bool
+        where F: FnMut(L::Info, L::Info, usize, usize) -> bool
     {
         match self {
             &Node::Internal(ref int) => {
                 let mut cur_info = start;
+                let n_children = int.nodes.len();
                 for (idx, node) in int.nodes.iter().enumerate() {
                     let next_info = cur_info.gather_down(node.info());
-                    if f(cur_info, next_info) {
+                    if f(cur_info, next_info, idx, n_children - idx - 1) {
                         return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
                     }
                     cur_info = next_info;
-                }
-                Err(TraverseError::AllFalse)
-            }
-            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
-        }
-    }
-
-    /// Same as `gather_traverse` but in reverse. The `Info` values passed to `f` will be exactly
-    /// the same for corresponding nodes as calling `gather_traverse` with the exact same parameter
-    /// `start`.
-    #[inline]
-    pub fn gather_traverse_rev<'a, F>(&'a self, start: L::Info, mut f: F) -> TraverseResult<'a, L>
-        where F: FnMut(L::Info, L::Info) -> bool
-    {
-        match self {
-            &Node::Internal(ref int) => {
-                let mut info = start;
-                let mut info_cache = NVec::new();
-                for child in &*int.nodes {
-                    info_cache.push(info);
-                    info = info.gather_down(child.info());
-                }
-                for (idx, (node, cur_info)) in int.nodes.iter().zip(info_cache).enumerate().rev() {
-                    let next_info = cur_info.gather_down(node.info());
-                    if f(cur_info, next_info) {
-                        return Ok(TraverseSummary { child: node, info: cur_info, index: idx });
-                    }
                 }
                 Err(TraverseError::AllFalse)
             }

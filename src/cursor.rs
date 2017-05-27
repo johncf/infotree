@@ -45,11 +45,11 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
 
     /// Returns the cumulative info along the shortest path from root to the current node.
     ///
-    /// Example 1: Cumulative info of the 4th node under root node is obtained by `Info::gather_down`
-    /// the infos of first 3 nodes.
+    /// Example 1: Cumulative info of the 4th node under root node is obtained by applying
+    /// `Info::gather_down` to the infos of first 3 nodes in succession, starting with `info_zero`.
     ///
     /// Example 2: Cumulative info of the second node under the 4th node under root node is that of
-    /// the 4th node (as in Example 1) `Info::gather_down` with the first child node.
+    /// the 4th node (as in Example 1) `Info::gather_down`-ed with the first child node.
     pub fn path_info(&self) -> L::Info {
         match self.steps.last() {
             Some(cstep) => cstep.info,
@@ -70,21 +70,25 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
         self.steps.pop().map(|cstep| &cstep.nodes[cstep.idx])
     }
 
+    pub fn descend(&mut self, idx: usize) -> Option<&'a Node<L>> {
+        self.descend_by(|_, _, idx, _| idx == idx)
+    }
+
     /// Descend the tree once, on the child for which `f` returns `true`.
     ///
     /// Returns `None` if `f` returned `false` on all children, or if it was a leaf node.
     ///
+    /// The arguments to `f` are exactly the same as in [`Node::gather_traverse`].
+    ///
     /// Panics if tree depth is greater than 8.
-    pub fn descend<F>(&mut self, mut f: F, reverse: bool) -> Option<&'a Node<L>>
-        where F: FnMut(L::Info, L::Info) -> bool
+    ///
+    /// [`Node::gather_traverse`]: ../enum.Node.html#method.gather_traverse
+    pub fn descend_by<F>(&mut self, mut f: F) -> Option<&'a Node<L>>
+        where F: FnMut(L::Info, L::Info, usize, usize) -> bool
     {
         let cur_node = self.node();
         let cur_info = self.path_info();
-        let traverse_result = if reverse {
-            cur_node.gather_traverse_rev(cur_info, |i, j| f(i, j))
-        } else {
-            cur_node.gather_traverse(cur_info, |i, j| f(i, j))
-        };
+        let traverse_result = cur_node.gather_traverse(cur_info, |a, b, i, j| f(a, b, i, j));
         match traverse_result {
             Ok(TraverseSummary { child, info, index }) => {
                 // ArrayVec::push(e) returns Some(e) on overflow!
@@ -129,6 +133,8 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     }
 
     /// Make the cursor point to the previous element at the same depth.
+    ///
+    /// Per the current implementation, `next_node` is more efficient than `prev_node`.
     pub fn prev_node(&mut self) -> Option<&'a Node<L>> {
         let mut steps_clone = self.steps.clone();
         let mut depth_delta = 0;
@@ -159,11 +165,11 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     }
 
     pub fn first_child(&mut self) -> Option<&'a Node<L>> {
-        self.descend(|_, _| true, false)
+        self.descend(0)
     }
 
     pub fn last_child(&mut self) -> Option<&'a Node<L>> {
-        self.descend(|_, _| true, true)
+        self.descend_by(|_, _, _, rem| rem == 0)
     }
 
     pub fn first_leaf_below(&mut self) -> &'a L {
@@ -187,6 +193,8 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
 
     /// If the current node is a leaf, try to fetch the previous leaf in order, otherwise it calls
     /// `last_leaf_below`.
+    ///
+    /// Per the current implementation, `next_leaf` is more efficient than `prev_leaf`.
     pub fn prev_leaf(&mut self) -> Option<&'a L> {
         match self.node().leaf() {
             None => Some(self.last_leaf_below()),
