@@ -71,6 +71,11 @@ pub trait Info: Copy {
     //
     // `None` should be returned only if `prev` is `None`, otherwise traversal may panic.
     //fn gather_down_inv(self, curr: Self, prev: Self) -> Self;
+
+    /// The identity element of `gather_up` operation. I.e., the following condition should hold:
+    ///
+    /// `x.gather_up(Info::identity()) == x`
+    fn identity() -> Self;
 }
 
 /// The basic building block of a tree.
@@ -105,13 +110,15 @@ pub struct LeafVal<L: Leaf> {
 impl Info for () {
     #[inline]
     fn gather_up(self, _: ()) { }
+    #[inline]
+    fn identity() { }
 }
 
 impl Info for usize {
     #[inline]
-    fn gather_up(self, other: usize) -> usize {
-        self + other
-    }
+    fn gather_up(self, other: usize) -> usize { self + other }
+    #[inline]
+    fn identity() -> usize { 0 }
 }
 
 impl<L: Leaf> Node<L> {

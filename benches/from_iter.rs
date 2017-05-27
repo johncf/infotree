@@ -5,7 +5,7 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::{Leaf, InfoTree};
+use infotree::{Leaf, InfoTree, CursorMut};
 use test::Bencher;
 
 use std::collections::LinkedList;
@@ -36,7 +36,24 @@ fn from_iter_ll(b: &mut Bencher) {
 }
 
 #[bench]
-fn from_iter_ut(b: &mut Bencher) {
+fn from_iter_cm(b: &mut Bencher) {
+    b.iter(|| {
+        (0..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_>>();
+    })
+}
+
+#[bench]
+fn from_iter_cm_raw(b: &mut Bencher) {
+    b.iter(|| {
+        let mut cursor_mut = CursorMut::new(());
+        for i in 0..TOTAL {
+            cursor_mut.insert_after(TestLeaf(i));
+        }
+    })
+}
+
+#[bench]
+fn from_iter_it(b: &mut Bencher) {
     b.iter(|| {
         (0..TOTAL).map(|e| TestLeaf(e)).collect::<InfoTree<_>>();
     })

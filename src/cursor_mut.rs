@@ -234,6 +234,29 @@ impl<L: Leaf> CursorMut<L> {
     }
 }
 
+impl<L: Leaf> FromIterator<L> for CursorMut<L> {
+    fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
+        let mut curs = CursorMut::new(L::Info::identity());
+        let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
+
+        loop {
+            loop {
+                match curs.current().map(|node| node.height()) {
+                    Some(h) if h > 1 => { curs.descend_last(0); }
+                    _ => break,
+                }
+            }
+            let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
+            if nodes.len() > 0 {
+                curs.insert_raw((Node::from_nodes(RC::new(nodes))), true);
+            } else {
+                break;
+            }
+        }
+        curs
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
