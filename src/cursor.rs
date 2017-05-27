@@ -36,7 +36,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     }
 
     /// Returns the current node the cursor is pointing to.
-    pub fn node(&self) -> &'a Node<L> {
+    pub fn current(&self) -> &'a Node<L> {
         match self.steps.last() {
             Some(cstep) => &cstep.nodes[cstep.idx],
             None => self.root,
@@ -86,21 +86,21 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     pub fn descend_by<F>(&mut self, mut f: F) -> Option<&'a Node<L>>
         where F: FnMut(L::Info, L::Info, usize, usize) -> bool
     {
-        let cur_node = self.node();
+        let cur_node = self.current();
         let cur_info = self.path_info();
         let traverse_result = cur_node.gather_traverse(cur_info, |a, b, i, j| f(a, b, i, j));
         match traverse_result {
             Ok(TraverseSummary { child, info, index }) => {
-                // ArrayVec::push(e) returns Some(e) on overflow!
-                assert!(self.steps.push(CursorStep {
-                                            nodes: cur_node.children_raw(),
-                                            idx: index,
-                                            info: info,
-                                        }).is_none(), "Tree depth greater than 8!");
+                self.descend_raw(cur_node.children_raw(), index, info);
                 Some(child)
             }
             Err(_) => None,
         }
+    }
+
+    fn descend_raw(&mut self, nodes: &'a RC<NVec<Node<L>>>, idx: usize, info: L::Info) {
+        // ArrayVec::push(e) returns Some(e) on overflow!
+        assert!(self.steps.push(CursorStep { nodes, idx, info }).is_none());
     }
 
     /// Make the cursor point to the next element at the same depth.
@@ -122,7 +122,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
                             self.first_child().unwrap();
                             depth_delta -= 1;
                         }
-                        return Some(self.node());
+                        return Some(self.current());
                     } else {
                         depth_delta += 1;
                     }
@@ -154,7 +154,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
                             self.last_child().unwrap();
                             depth_delta -= 1;
                         }
-                        return Some(self.node());
+                        return Some(self.current());
                     } else {
                         depth_delta += 1;
                     }
@@ -174,18 +174,18 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
 
     pub fn first_leaf_below(&mut self) -> &'a L {
         while let Some(_) = self.first_child() {}
-        self.node().leaf().unwrap()
+        self.current().leaf().unwrap()
     }
 
     pub fn last_leaf_below(&mut self) -> &'a L {
         while let Some(_) = self.last_child() {}
-        self.node().leaf().unwrap()
+        self.current().leaf().unwrap()
     }
 
     /// If the current node is a leaf, try to fetch the next leaf in order, otherwise it calls
     /// `first_leaf_below`.
     pub fn next_leaf(&mut self) -> Option<&'a L> {
-        match self.node().leaf() {
+        match self.current().leaf() {
             None => Some(self.first_leaf_below()),
             Some(_) => self.next_node().map(|node| node.leaf().unwrap()),
         }
@@ -196,7 +196,7 @@ impl<'a, L: Leaf + 'a> Cursor<'a, L> {
     ///
     /// Per the current implementation, `next_leaf` is more efficient than `prev_leaf`.
     pub fn prev_leaf(&mut self) -> Option<&'a L> {
-        match self.node().leaf() {
+        match self.current().leaf() {
             None => Some(self.last_leaf_below()),
             Some(_) => self.prev_node().map(|node| node.leaf().unwrap()),
         }
