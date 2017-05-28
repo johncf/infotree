@@ -4,15 +4,15 @@ pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
     /// Used when traversing down the tree for computing the cumulative info from root.
     fn extend(self, prev: RHS) -> Self;
 
-    /// Inverse of `extend`. If the info gathered on a nodes is `x`, and `c0` is the cumulative
-    /// info till that node, then the following condition should hold:
+    /// The inverse of `extend` operation. If the info gathered on a node is `x`, and `c0` is the
+    /// cumulative path info to that node, then the following condition should hold:
     ///
-    /// `c0 == c0.extend(x).extend_inv(x)`
+    /// `c0.extend(x).extend_inv(x) == c0`
     fn extend_inv(self, curr: RHS) -> Self;
 
     /// The identity element of `extend` operation. I.e., the following condition should hold:
     ///
-    /// `x.extend(Info::identity()) == x`
+    /// `c0.extend(PathInfo::identity()) == c0`
     fn identity() -> Self;
 }
 

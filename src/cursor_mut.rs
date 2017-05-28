@@ -138,6 +138,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    // FIXME should the cursor should be guaranteed to be in the ancestor line after edit ops?
+
     /// Insert a leaf at the current position if currently focused on a leaf, or as the first leaf
     /// under the current node.
     ///
@@ -167,10 +169,20 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn remove(&mut self, _idx: usize) -> Option<Node<L>> {
         // the cursor should point to the same position if possible, or if there are no children on
         // the right to replace it, move left, or if it underflows, move up and merge with an
-        // adjacent node (the return value should reflect any changes in position. even though the
-        // exact changes need not be conveyed, the cursor should be guaranteed to be in the
-        // ancestor line)
-        unimplemented!()
+        // adjacent node.
+        match self.cur_node.take() {
+            Some(cur_node) => {
+                if let Some(_) = self.steps.pop() {
+                    //CursorMutStep { mut nodes, idx, path_info }
+                    //self.cur_node = RC::make_mut(&mut nodes).remove(idx);
+                    //TODO check underflow and balance
+                    //self.steps.push(CursorMutStep { nodes, idx, path_info })
+                    unimplemented!()
+                }
+                Some(cur_node)
+            },
+            None => None, // cursor is empty
+        }
     }
 
     /// Split the tree into two, and return the right part of it. The current node, all leaves
@@ -187,7 +199,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                 assert_eq!(cur_node.height(), newnode.height());
                 match self.steps.pop() {
                     Some(mut cstep) => {
-                        // TODO cursor can actually hold one more than MAX_CHILDREN in current node
                         let _res = RC::make_mut(&mut cstep.nodes).insert(cstep.idx, cur_node);
                         debug_assert!(_res.is_none());
                         let newidx = if after { cstep.idx + 1 } else { cstep.idx };
@@ -197,7 +208,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                             self.cur_node = Some(parent);
                             self.insert_raw(split_node, true);
                         } else {
-                            // FIXME optimize this using above TODO
                             let newnode = RC::make_mut(&mut cstep.nodes).remove(newidx);
                             debug_assert!(newnode.is_some());
                             self.cur_node = newnode;
