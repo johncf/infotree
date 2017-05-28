@@ -180,24 +180,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     }
 }
 
-fn insert_maybe_split<L: Leaf>(
-    nodes: &mut NVec<Node<L>>,
-    idx: usize,
-    newnode: Node<L>
-) -> Option<Node<L>> {
-    if nodes.len() < MAX_CHILDREN {
-        let res = nodes.insert(idx, newnode);
-        debug_assert!(res.is_none());
-        None
-    } else {
-        let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
-        let mut after: NVec<_> = nodes.drain(MIN_CHILDREN+1..).collect();
-        let res = after.push(extra);
-        debug_assert!(res.is_none());
-        Some(Node::from_nodes(RC::new(after)))
-    }
-}
-
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn insert_raw(&mut self, newnode: Node<L>, after: bool) {
         match self.cur_node.take() {

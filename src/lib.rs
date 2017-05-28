@@ -241,47 +241,143 @@ impl<L: Leaf> Node<L> {
 
     /// Concatenates two nodes of possibly different heights into a single balanced node.
     pub fn concat(node1: Node<L>, node2: Node<L>) -> Node<L> {
+        let (node1, maybe_node2) = Node::maybe_concat(node1, node2);
+        if let Some(node2) = maybe_node2 {
+            Node::merge_two(node1, node2)
+        } else {
+            node1
+        }
+    }
+
+    /// Concatenates two nodes of possibly different heights into a single balanced node if the
+    /// resulting height does not exceed the maximum height among the original nodes. Otherwise,
+    /// splits them into two nodes of the same height.
+    pub fn maybe_concat(node1: Node<L>, node2: Node<L>) -> (Node<L>, Option<Node<L>>) {
+        // This is an optimized version of the following code:
+        // https://github.com/google/xi-editor/blob/cbec578/rust/rope/src/tree.rs#L276-L318
+        // The originally adapted code (around 3x slower) is probably much easier to read and
+        // understand. It may be found in commit ca3344c (line 222) of this file.
+
         let h1 = node1.height();
         let h2 = node2.height();
 
         match h1.cmp(&h2) {
             cmp::Ordering::Less => {
-                let children2 = node2.children();
-                if h1 == h2 - 1 && node1.has_min_size() {
-                    Node::merge_nodes(&[node1], children2)
-                } else {
-                    let newnode = Node::concat(node1, children2[0].clone());
-                    if newnode.height() == h2 - 1 {
-                        Node::merge_nodes(&[newnode], &children2[1..])
+                let mut children2 = node2.into_children_raw();
+                let maybe_newnode = {
+                    let children2 = RC::make_mut(&mut children2);
+                    if h1 == h2 - 1 && node1.has_min_size() {
+                        insert_maybe_split(children2, 0, node1)
                     } else {
-                        debug_assert_eq!(newnode.height(), h2);
-                        Node::merge_nodes(newnode.children(), &children2[1..])
+                        let newnode = Node::concat(node1, children2.remove(0).unwrap());
+                        if newnode.height() == h2 - 1 {
+                            insert_maybe_split(children2, 0, newnode)
+                        } else {
+                            debug_assert_eq!(newnode.height(), h2);
+                            let mut newchildren = newnode.into_children_raw();
+                            if {
+                                let newchildren = RC::make_mut(&mut newchildren);
+                                std::mem::swap(newchildren, children2);
+                                balance_maybe_merge(children2, newchildren)
+                            } { // merged into children2
+                                None
+                            } else {
+                                Some(Node::from_nodes(newchildren))
+                            }
+                        }
                     }
-                }
+                };
+                (Node::from_nodes(children2), maybe_newnode)
             },
             cmp::Ordering::Equal => {
                 if node1.has_min_size() && node2.has_min_size() {
-                    Node::merge_two(node1, node2)
+                    (node1, Some(node2))
                 } else {
-                    Node::merge_nodes(node1.children(), node2.children())
+                    let mut children1 = node1.into_children_raw();
+                    let mut children2 = node2.into_children_raw();
+                    if balance_maybe_merge(RC::make_mut(&mut children1), RC::make_mut(&mut children2)) {
+                        (Node::from_nodes(children1), None)
+                    } else {
+                        (Node::from_nodes(children1), Some(Node::from_nodes(children2)))
+                    }
                 }
             },
             cmp::Ordering::Greater => {
-                let children1 = node1.children();
-                if h2 == h1 - 1 && node2.has_min_size() {
-                    Node::merge_nodes(children1, &[node2])
-                } else {
-                    let lastix = children1.len() - 1;
-                    let newnode = Node::concat(children1[lastix].clone(), node2);
-                    if newnode.height() == h1 - 1 {
-                        Node::merge_nodes(&children1[..lastix], &[newnode])
+                let mut children1 = node1.into_children_raw();
+                let maybe_newnode = {
+                    let len1 = children1.len();
+                    let children1 = RC::make_mut(&mut children1);
+                    if h2 == h1 - 1 && node2.has_min_size() {
+                        insert_maybe_split(children1, len1, node2)
                     } else {
-                        debug_assert_eq!(newnode.height(), h1);
-                        Node::merge_nodes(&children1[..lastix], newnode.children())
+                        let newnode = Node::concat(children1.pop().unwrap(), node2);
+                        let len1 = len1 - 1;
+                        if newnode.height() == h1 - 1 {
+                            insert_maybe_split(children1, len1, newnode)
+                        } else {
+                            debug_assert_eq!(newnode.height(), h1);
+                            let mut newchildren = newnode.into_children_raw();
+                            if {
+                                let newchildren = RC::make_mut(&mut newchildren);
+                                balance_maybe_merge(children1, newchildren)
+                            } {
+                                None
+                            } else {
+                                Some(Node::from_nodes(newchildren))
+                            }
+                        }
                     }
-                }
+                };
+                (Node::from_nodes(children1), maybe_newnode)
             }
         }
+    }
+}
+
+// Tries to merge two lists of nodes into one (returns true), otherwise balances the lists so that
+// both of them have at least MIN_CHILDREN nodes (returns false).
+fn balance_maybe_merge<L: Leaf>(
+    children1: &mut NVec<Node<L>>, children2: &mut NVec<Node<L>>
+) -> bool {
+    let (len1, len2) = (children1.len(), children2.len());
+    if len1 + len2 <= MAX_CHILDREN {
+        children1.extend(children2.drain(..));
+        true
+    } else if len1 < MIN_CHILDREN || len2 < MIN_CHILDREN {
+        let (newlen1, newlen2) = balanced_split(len1 + len2);
+        if len1 > len2 {
+            let mut tmp_children2 = NVec::new();
+            tmp_children2.extend(children1.drain(newlen1..));
+            tmp_children2.extend(children2.drain(..));
+            std::mem::swap(children2, &mut tmp_children2);
+        } else {
+            let drain2 = len2 - newlen2;
+            children1.extend(children2.drain(..drain2));
+        }
+        false
+    } else {
+        false
+    }
+}
+
+// Inserts newnode into the list of nodes at the specified position. If the list overflows, splits
+// the list into two and returns a new node created from right half of the split.
+fn insert_maybe_split<L: Leaf>(
+    nodes: &mut NVec<Node<L>>,
+    idx: usize,
+    newnode: Node<L>
+) -> Option<Node<L>> {
+    if nodes.len() < MAX_CHILDREN {
+        let res = nodes.insert(idx, newnode);
+        debug_assert!(res.is_none());
+        None
+    } else {
+        let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
+        let n_left = balanced_split(MAX_CHILDREN + 1).0;
+        let mut after: NVec<_> = nodes.drain(n_left + 1..).collect();
+        let res = after.push(extra);
+        debug_assert!(res.is_none());
+        Some(Node::from_nodes(RC::new(after)))
     }
 }
 
@@ -343,21 +439,6 @@ impl<L: Leaf> Node<L> {
         nodes.push(node2);
         Node::from_nodes(RC::new(nodes))
     }
-
-    fn merge_nodes(children1: &[Node<L>], children2: &[Node<L>]) -> Node<L> {
-        let n_children = children1.len() + children2.len();
-        let mut iter = children1.iter().chain(children2).cloned();
-        if n_children <= MAX_CHILDREN {
-            Node::from_nodes(RC::new(iter.collect()))
-        } else {
-            debug_assert!(n_children <= 2 * MAX_CHILDREN);
-            // Make left heavy. Splitting at midpoint is another option
-            let n_left = cmp::min(n_children - MIN_CHILDREN, MAX_CHILDREN);
-            let left = Node::from_nodes(RC::new(iter.by_ref().take(n_left).collect()));
-            let right = Node::from_nodes(RC::new(iter.collect()));
-            Node::merge_two(left, right)
-        }
-    }
 }
 
 impl<L: Leaf> InfoTree<L> {
@@ -403,6 +484,16 @@ impl<L: Leaf> FromIterator<L> for InfoTree<L> {
         }
         tree
     }
+}
+
+fn balanced_split(total: usize) -> (usize, usize) {
+    debug_assert!(MAX_CHILDREN <= total && total <= 2*MAX_CHILDREN);
+    // Make left heavy. Splitting at midpoint is another option
+    let n_left = cmp::min(total - MIN_CHILDREN, MAX_CHILDREN);
+    let n_right = total - n_left;
+    debug_assert!(MIN_CHILDREN <= n_left && n_left <= MAX_CHILDREN);
+    debug_assert!(MIN_CHILDREN <= n_right && n_right <= MAX_CHILDREN);
+    (n_left, n_right)
 }
 
 #[cfg(test)]
