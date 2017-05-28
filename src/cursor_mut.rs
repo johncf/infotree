@@ -172,13 +172,26 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         // adjacent node.
         match self.cur_node.take() {
             Some(cur_node) => {
-                if let Some(_) = self.steps.pop() {
-                    //CursorMutStep { mut nodes, idx, path_info }
-                    //self.cur_node = RC::make_mut(&mut nodes).remove(idx);
-                    //TODO check underflow and balance
-                    //self.steps.push(CursorMutStep { nodes, idx, path_info })
-                    unimplemented!()
-                }
+                if let Some(CursorMutStep { mut nodes, mut idx, mut path_info }) = self.steps.pop() {
+                    let nodes_len = nodes.len();
+                    let steps_len = self.steps.len();
+                    if nodes_len >= MIN_CHILDREN || (steps_len == 0 && nodes_len > 0) {
+                        if idx == nodes_len {
+                            idx -= 1;
+                        }
+                        self.cur_node = RC::make_mut(&mut nodes).remove(idx);
+                        if nodes_len > 1 { // nodes is non-empty after remove
+                            path_info = path_info.extend_inv(self.current().unwrap().info());
+                            self.steps.push(CursorMutStep { nodes, idx, path_info });
+                        }
+                    } else if steps_len > 0 {
+                        debug_assert_eq!(nodes_len, MIN_CHILDREN - 1);
+                        // TODO rebalance
+                        unimplemented!()
+                    } else {
+                        unreachable!() // at no point should there be an empty nodes list in steps
+                    }
+                } // else { the cursor became empty. nothing to do. }
                 Some(cur_node)
             },
             None => None, // cursor is empty
