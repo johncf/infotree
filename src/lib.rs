@@ -17,9 +17,9 @@ pub mod cursor_mut;
 
 pub mod info_ext;
 
-pub use info_ext::InfoExt;
-pub use cursor::Cursor;
-pub use cursor_mut::CursorMut;
+pub use info_ext::PathInfo;
+pub use cursor::CursorT;
+pub use cursor_mut::CursorMutT;
 
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
@@ -56,7 +56,7 @@ pub trait Leaf: Clone {
 pub trait Info: Copy {
     /// Used when gathering info from children to parent nodes. Should probably be commutative and
     /// associative.
-    fn gather_up(self, other: Self) -> Self;
+    fn gather(self, other: Self) -> Self;
 }
 
 /// The basic building block of a tree.
@@ -90,12 +90,12 @@ pub struct LeafVal<L: Leaf> {
 
 impl Info for () {
     #[inline]
-    fn gather_up(self, _: ()) { }
+    fn gather(self, _: ()) { }
 }
 
 impl Info for usize {
     #[inline]
-    fn gather_up(self, other: usize) -> usize { self + other }
+    fn gather(self, other: usize) -> usize { self + other }
 }
 
 impl<L: Leaf> Node<L> {
@@ -114,7 +114,7 @@ impl<L: Leaf> Node<L> {
         let mut info = nodes[0].info();
         for child in &nodes[1..] {
             assert_eq!(height, child.height() + 1);
-            info = info.gather_up(child.info());
+            info = info.gather(child.info());
         }
         Node::Internal(InternalVal { info, height, nodes })
     }
@@ -170,10 +170,8 @@ impl<L: Leaf> Node<L> {
     /// Traverse this node conditioned on a callback which is provided with info from each child node
     /// from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
     ///
-    /// Arguments to `f`:
-    /// - child node info
-    /// - position (zero-based from left)
-    /// - remaining (= total - position - 1)
+    /// The three arguments to `f` are respectively: child node info, zero-based position from
+    /// left, and the remaining number of children (total - position - 1).
     #[inline]
     pub fn traverse<F>(&self, mut f: F) -> Result<(usize, &Node<L>), TraverseError>
         where F: FnMut(L::Info, usize, usize) -> bool
@@ -211,31 +209,34 @@ impl<L: Leaf> Node<L> {
         }
     }
 
-    /// TODO
-    pub fn gather_traverse<I, F>(&self, start: I, mut f: F) -> Result<(usize, I, &Node<L>), TraverseError>
-        where I: InfoExt<L::Info>,
-              F: FnMut(I, L::Info, usize, usize) -> bool
+    /// Similar to `traverse` with an extra argument for `f` which starts with `first`, and for
+    /// each child, `PathInfo::extend`-s it with the child's info.
+    pub fn path_traverse<P, F>(&self, first: P, mut f: F) -> Result<(usize, P, &Node<L>), TraverseError>
+        where P: PathInfo<L::Info>,
+              F: FnMut(P, L::Info, usize, usize) -> bool
     {
-        let mut info_ext = start;
+        let mut path_info = first;
         self.traverse(|node_info, pos, rem| {
-            if f(info_ext, node_info, pos, rem) { true }
+            if f(path_info, node_info, pos, rem) { true }
             else {
-                info_ext = info_ext.gather_down(node_info);
+                path_info = path_info.extend(node_info);
                 false
             }
-        }).map(|(idx, child)| (idx, info_ext, child))
+        }).map(|(idx, child)| (idx, path_info, child))
     }
 
-    /// Same as `gather_traverse` but in reverse order.
-    pub fn gather_traverse_rev<I, F>(&self, start: I, mut f: F) -> Result<(usize, I, &Node<L>), TraverseError>
-        where I: InfoExt<L::Info>,
-              F: FnMut(I, L::Info, usize, usize) -> bool
+    /// Same as `path_traverse` but in reverse order. (`first` is initially extended with this
+    /// node's info, and for each child, `PathInfo::extend_inv`-s it with child's info. Thus `f`
+    /// will be called with `first` at the end, if `extend_inv` is correctly implemented.)
+    pub fn path_traverse_rev<P, F>(&self, first: P, mut f: F) -> Result<(usize, P, &Node<L>), TraverseError>
+        where P: PathInfo<L::Info>,
+              F: FnMut(P, L::Info, usize, usize) -> bool
     {
-        let mut info_ext = start.gather_down(self.info());
+        let mut path_info = first.extend(self.info());
         self.traverse_rev(|node_info, pos, rem| {
-            info_ext = info_ext.gather_down_inv(node_info);
-            f(info_ext, node_info, pos, rem)
-        }).map(|(idx, child)| (idx, info_ext, child))
+            path_info = path_info.extend_inv(node_info);
+            f(path_info, node_info, pos, rem)
+        }).map(|(idx, child)| (idx, path_info, child))
     }
 
     /// Concatenates two nodes of possibly different heights into a single balanced node.
