@@ -45,7 +45,7 @@ fn from_iter_cm(b: &mut Bencher) {
 #[bench]
 fn from_iter_cm_raw(b: &mut Bencher) {
     b.iter(|| {
-        let mut cursor_mut = CursorMut::new(());
+        let mut cursor_mut = CursorMut::new();
         for i in 0..TOTAL {
             cursor_mut.insert_after(TestLeaf(i));
         }

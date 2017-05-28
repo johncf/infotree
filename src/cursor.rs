@@ -1,16 +1,17 @@
 use super::*;
 use std::fmt;
 
-/// A useful type alias for easy initialization of `CursorInner`.
-///
-/// Use `Cursor::new()` instead of `CursorInner::new()` since the latter would need annotations.
-pub type Cursor<'a, L> = CursorInner<'a, L, ()>;
+/// A useful type alias for easy initialization of `CursorT`.
+pub type Cursor<'a, L> = CursorT<'a, L, ()>;
+
+/// A useful type alias for easy initialization of `CursorT`.
+pub type CursorGather<'a, L: Leaf> = CursorT<'a, L, L::Info>;
 
 /// An object that can be used to traverse a `Node`.
 ///
-/// `CursorInner` is very lightweight. All operations are done entirely using stack memory -- no
+/// `CursorT` is very lightweight. All operations are done entirely using stack memory -- no
 /// heap allocations are made at any point.
-pub struct CursorInner<'a, L: Leaf + 'a, I> {
+pub struct CursorT<'a, L: Leaf + 'a, I> {
     root: &'a Node<L>,
     steps: CVec<CursorStep<'a, L, I>>,
 }
@@ -29,10 +30,10 @@ impl<'a, L, I> fmt::Debug for CursorStep<'a, L, I> where L: Leaf + 'a, I: InfoEx
     }
 }
 
-impl<'a, L, I> CursorInner<'a, L, I> where L: Leaf + 'a, I: InfoExt<L::Info> {
+impl<'a, L, I> CursorT<'a, L, I> where L: Leaf + 'a, I: InfoExt<L::Info> {
     /// Create a new cursor from a root node.
-    pub fn new(node: &Node<L>) -> CursorInner<L, I> {
-        CursorInner {
+    pub fn new(node: &Node<L>) -> CursorT<L, I> {
+        CursorT {
             root: node,
             steps: CVec::new(),
         }
@@ -46,8 +47,8 @@ impl<'a, L, I> CursorInner<'a, L, I> where L: Leaf + 'a, I: InfoExt<L::Info> {
         }
     }
 
-    #[doc(hidden)]
-    pub fn _extra(&self) -> I {
+    /// TODO
+    pub fn extra(&self) -> I {
         match self.steps.last() {
             Some(cstep) => cstep.extra,
             None => I::identity(),
@@ -69,12 +70,12 @@ impl<'a, L, I> CursorInner<'a, L, I> where L: Leaf + 'a, I: InfoExt<L::Info> {
 
     /// Descend on the `idx`-th child from left. The first child is numbered `0`.
     pub fn descend(&mut self, idx: usize) -> Option<&'a Node<L>> {
-        self._descend_by_ext(|_, _, i, _| i == idx, false)
+        self.descend_by_ext(|_, _, i, _| i == idx, false)
     }
 
     /// Descend on the `idx`-th child from right. The last child is numbered `0`.
     pub fn descend_last(&mut self, idx: usize) -> Option<&'a Node<L>> {
-        self._descend_by_ext(|_, _, _, i| i == idx, true)
+        self.descend_by_ext(|_, _, _, i| i == idx, true)
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`.
@@ -89,33 +90,21 @@ impl<'a, L, I> CursorInner<'a, L, I> where L: Leaf + 'a, I: InfoExt<L::Info> {
     pub fn descend_by<F>(&mut self, mut f: F, reversed: bool) -> Option<&'a Node<L>>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
-        self._descend_by_ext(|_, a, i, j| f(a, i, j), reversed)
+        self.descend_by_ext(|_, a, i, j| f(a, i, j), reversed)
     }
 
-    // This function is crucial to avoid WET-ting in `CursorExt`.
-    #[doc(hidden)]
-    pub fn _descend_by_ext<F>(&mut self, mut f: F, reversed: bool) -> Option<&'a Node<L>>
+    /// TODO
+    pub fn descend_by_ext<F>(&mut self, f: F, reversed: bool) -> Option<&'a Node<L>>
         where F: FnMut(I, L::Info, usize, usize) -> bool
     {
         let cur_node = self.current();
-        let mut extra = self._extra();
         let res = if reversed {
-            extra = extra.gather_down(cur_node.info());
-            cur_node.traverse_rev(|node_info, pos, rem| {
-                extra = extra.gather_down_inv(node_info);
-                let ret = f(extra, node_info, pos, rem);
-                ret
-            })
+            cur_node.gather_traverse_rev(self.extra(), f)
         } else {
-            cur_node.traverse(|node_info, pos, rem| {
-                match f(extra, node_info, pos, rem) {
-                    true => true,
-                    false => { extra = extra.gather_down(node_info); false }
-                }
-            })
+            cur_node.gather_traverse(self.extra(), f)
         };
         match res {
-            Ok((child, index)) => {
+            Ok((index, extra, child)) => {
                 self.descend_raw(cur_node.children_raw(), index, extra);
                 Some(child)
             }
@@ -220,7 +209,7 @@ impl<'a, L, I> CursorInner<'a, L, I> where L: Leaf + 'a, I: InfoExt<L::Info> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::tests::*;
+    use ::tests::*;
 
     #[test]
     fn leaf_traversal() {
@@ -235,6 +224,17 @@ mod tests {
             assert_eq!(cursor.prev_leaf(), Some(&TestLeaf(i)));
         }
         assert_eq!(cursor.prev_leaf(), None);
+    }
+
+    #[test]
+    fn gather_down() {
+        let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
+        let mut cursor = CursorGather::new(root_of(&tree));
+        assert_eq!(*cursor.first_leaf_below(), TestLeaf(1));
+        assert_eq!(cursor.extra(), 0);
+        cursor.reset();
+        assert_eq!(*cursor.last_leaf_below(), TestLeaf(20));
+        assert_eq!(cursor.extra(), 19*20/2);
     }
 
     // FIXME need more tests

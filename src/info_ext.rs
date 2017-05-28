@@ -1,11 +1,5 @@
 use super::Info;
 
-mod cursor;
-//mod cursor_mut;
-
-pub use self::cursor::CursorExt;
-//pub use self::cursor_mut::CursorMutExt;
-
 pub trait InfoExt<RHS=Self>: Copy where RHS: Info {
     /// Used when traversing down the tree for computing the cumulative info from root.
     fn gather_down(self, prev: RHS) -> Self;

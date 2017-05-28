@@ -13,7 +13,7 @@ use std::ops::{Deref, DerefMut};
 use arrayvec::ArrayVec;
 
 pub mod cursor;
-mod cursor_mut;
+pub mod cursor_mut;
 
 pub mod info_ext;
 
@@ -175,7 +175,7 @@ impl<L: Leaf> Node<L> {
     /// - position (zero-based from left)
     /// - remaining (= total - position - 1)
     #[inline]
-    pub fn traverse<F>(&self, mut f: F) -> Result<(&Node<L>, usize), TraverseError>
+    pub fn traverse<F>(&self, mut f: F) -> Result<(usize, &Node<L>), TraverseError>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
         match self {
@@ -183,7 +183,7 @@ impl<L: Leaf> Node<L> {
                 let n_children = int.nodes.len();
                 for (idx, node) in int.nodes.iter().enumerate() {
                     if f(node.info(), idx, n_children - idx - 1) {
-                        return Ok((node, idx));
+                        return Ok((idx, node));
                     }
                 }
                 Err(TraverseError::AllFalse)
@@ -194,7 +194,7 @@ impl<L: Leaf> Node<L> {
 
     /// Same as `traverse` but in reverse order.
     #[inline]
-    pub fn traverse_rev<F>(&self, mut f: F) -> Result<(&Node<L>, usize), TraverseError>
+    pub fn traverse_rev<F>(&self, mut f: F) -> Result<(usize, &Node<L>), TraverseError>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
         match self {
@@ -202,13 +202,40 @@ impl<L: Leaf> Node<L> {
                 let n_children = int.nodes.len();
                 for (idx, node) in int.nodes.iter().enumerate().rev() {
                     if f(node.info(), idx, n_children - idx - 1) {
-                        return Ok((node, idx));
+                        return Ok((idx, node));
                     }
                 }
                 Err(TraverseError::AllFalse)
             }
             &Node::Leaf(_) => Err(TraverseError::IsLeaf),
         }
+    }
+
+    /// TODO
+    pub fn gather_traverse<I, F>(&self, start: I, mut f: F) -> Result<(usize, I, &Node<L>), TraverseError>
+        where I: InfoExt<L::Info>,
+              F: FnMut(I, L::Info, usize, usize) -> bool
+    {
+        let mut info_ext = start;
+        self.traverse(|node_info, pos, rem| {
+            if f(info_ext, node_info, pos, rem) { true }
+            else {
+                info_ext = info_ext.gather_down(node_info);
+                false
+            }
+        }).map(|(idx, child)| (idx, info_ext, child))
+    }
+
+    /// Same as `gather_traverse` but in reverse order.
+    pub fn gather_traverse_rev<I, F>(&self, start: I, mut f: F) -> Result<(usize, I, &Node<L>), TraverseError>
+        where I: InfoExt<L::Info>,
+              F: FnMut(I, L::Info, usize, usize) -> bool
+    {
+        let mut info_ext = start.gather_down(self.info());
+        self.traverse_rev(|node_info, pos, rem| {
+            info_ext = info_ext.gather_down_inv(node_info);
+            f(info_ext, node_info, pos, rem)
+        }).map(|(idx, child)| (idx, info_ext, child))
     }
 
     /// Concatenates two nodes of possibly different heights into a single balanced node.
