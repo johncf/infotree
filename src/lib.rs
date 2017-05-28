@@ -12,9 +12,12 @@ use std::ops::{Deref, DerefMut};
 
 use arrayvec::ArrayVec;
 
-mod cursor;
+pub mod cursor;
 mod cursor_mut;
 
+pub mod info_ext;
+
+pub use info_ext::InfoExt;
 pub use cursor::Cursor;
 pub use cursor_mut::CursorMut;
 
@@ -54,28 +57,6 @@ pub trait Info: Copy {
     /// Used when gathering info from children to parent nodes. Should probably be commutative and
     /// associative.
     fn gather_up(self, other: Self) -> Self;
-
-    /// Used when traversing down the tree for computing the cumulative info from root.
-    ///
-    /// The default implementation simply calls `gather_up`.
-    fn gather_down(self, prev: Self) -> Self {
-        self.gather_up(prev)
-    }
-
-    // Inverse of `gather_down`. If the info on two adjacent nodes are `i1` and `i2`, and `c0` is
-    // the cumulative info before `i1`, then the following condition should hold:
-    //
-    //     g(c0,i1) == g_inv( g(g(c0,i1),i2) , i2 , i1 )
-    //
-    // where `g` is `gather_down` and `g_inv` is `gather_down_inv`.
-    //
-    // `None` should be returned only if `prev` is `None`, otherwise traversal may panic.
-    //fn gather_down_inv(self, curr: Self, prev: Self) -> Self;
-
-    /// The identity element of `gather_up` operation. I.e., the following condition should hold:
-    ///
-    /// `x.gather_up(Info::identity()) == x`
-    fn identity() -> Self;
 }
 
 /// The basic building block of a tree.
@@ -110,15 +91,11 @@ pub struct LeafVal<L: Leaf> {
 impl Info for () {
     #[inline]
     fn gather_up(self, _: ()) { }
-    #[inline]
-    fn identity() { }
 }
 
 impl Info for usize {
     #[inline]
     fn gather_up(self, other: usize) -> usize { self + other }
-    #[inline]
-    fn identity() -> usize { 0 }
 }
 
 impl<L: Leaf> Node<L> {
@@ -215,29 +192,22 @@ impl<L: Leaf> Node<L> {
         }
     }
 
-    /// Traverse this node conditioned on a callback which is provided with cumulatively gathered
-    /// info from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
-    ///
-    /// Arguments to `f`:
-    /// - cumulative info before
-    /// - cumulative info after
-    /// - position (zero-based from left)
-    /// - remaining (= total - position - 1)
+    /// Same as `traverse` but in reverse order.
     #[inline]
-    pub fn gather_traverse<F>(&self, start: L::Info, mut f: F) -> TraverseResult<L>
-        where F: FnMut(L::Info, L::Info, usize, usize) -> bool
+    pub fn traverse_rev<F>(&self, mut f: F) -> Result<(&Node<L>, usize), TraverseError>
+        where F: FnMut(L::Info, usize, usize) -> bool
     {
-        let mut cur_info = start;
-        let res = self.traverse(|node_info, pos, rem| {
-            let next_info = cur_info.gather_down(node_info);
-            match f(cur_info, next_info, pos, rem) {
-                true => true,
-                false => { cur_info = next_info; false }
+        match self {
+            &Node::Internal(ref int) => {
+                let n_children = int.nodes.len();
+                for (idx, node) in int.nodes.iter().enumerate().rev() {
+                    if f(node.info(), idx, n_children - idx - 1) {
+                        return Ok((node, idx));
+                    }
+                }
+                Err(TraverseError::AllFalse)
             }
-        });
-        match res {
-            Ok((node, idx)) => Ok(TraverseSummary { child: node, info: cur_info, index: idx }),
-            Err(e) => Err(e),
+            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
         }
     }
 
@@ -310,14 +280,6 @@ impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
     fn drop(&mut self) {
         self.0.info = self.0.val.compute_info();
     }
-}
-
-pub type TraverseResult<'a, L> = Result<TraverseSummary<'a, L>, TraverseError>;
-
-pub struct TraverseSummary<'a, L: Leaf + 'a> {
-    pub child: &'a Node<L>,
-    pub info: L::Info,
-    pub index: usize,
 }
 
 pub enum TraverseError {

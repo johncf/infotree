@@ -1,42 +1,45 @@
 use super::*;
 use std::fmt;
 
-// Note: The working of `CursorMut` is fundamentally different from `Cursor`.
-// `CursorMut` can become empty (when both `cur_node` is empty).
-// `cur_node` being empty while `steps` being non-empty is an invalid state.
+// Note: The working of `CursorMut` is fundamentally different from `Cursor`. `CursorMut` can
+//       become empty (when both `cur_node` is empty). `cur_node` being empty while `steps` being
+//       non-empty is an invalid state.
+
+/// A cursor object that can be used to modify internals of `Node` while maintaining balance.
+///
+/// `CursorMut` is heavier compared to `Cursor`. Even though `CursorMut` does not do any heap
+/// allocations for its own operations, most operations tries to make writable clones of the node
+/// it is focused on using `Arc::make_mut`. This could result in heap allocations if the number of
+/// references to that node is more than one.
 pub struct CursorMut<L: Leaf> {
     cur_node: Option<Node<L>>,
     steps: CVec<CursorMutStep<L>>,
-    info_zero: L::Info,
 }
 
 struct CursorMutStep<L: Leaf> {
     nodes: RC<NVec<Node<L>>>,
     idx: usize,
-    path_info: L::Info,
 }
 
-impl<L> fmt::Debug for CursorMutStep<L> where L: Leaf, L::Info: fmt::Debug {
+impl<L> fmt::Debug for CursorMutStep<L> where L: Leaf {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CursorMutStep {{ nodes.len: {}, idx: {}, info: {:?} }}",
-                  self.nodes.len(), self.idx, self.path_info)
+        write!(f, "CursorMutStep {{ nodes.len: {}, idx: {} }}",
+                  self.nodes.len(), self.idx)
     }
 }
 
 impl<L: Leaf> CursorMut<L> {
-    pub fn new(info_zero: L::Info) -> CursorMut<L> {
+    pub fn new() -> CursorMut<L> {
         CursorMut {
             cur_node: None,
             steps: CVec::new(),
-            info_zero: info_zero,
         }
     }
 
-    pub fn from_node(node: Node<L>, info_zero: L::Info) -> CursorMut<L> {
+    pub fn from_node(node: Node<L>) -> CursorMut<L> {
         CursorMut {
             cur_node: Some(node),
             steps: CVec::new(),
-            info_zero: info_zero,
         }
     }
 
@@ -47,16 +50,6 @@ impl<L: Leaf> CursorMut<L> {
 
     pub fn current(&mut self) -> Option<&mut Node<L>> {
         self.cur_node.as_mut()
-    }
-
-    /// Returns the cumulative info along the shortest path from root to the current node.
-    ///
-    /// See `Cursor` for detailed explanation. This is an O(1) operation too.
-    pub fn path_info(&self) -> L::Info {
-        match self.steps.last() {
-            Some(cstep) => cstep.path_info,
-            None => self.info_zero,
-        }
     }
 
     pub fn reset(&mut self) {
@@ -82,37 +75,36 @@ impl<L: Leaf> CursorMut<L> {
     }
 
     pub fn descend(&mut self, idx: usize) -> Option<&mut Node<L>> {
-        self.descend_by(|_, _, i, _| i == idx)
+        self.descend_by(|_, i, _| i == idx)
     }
 
     pub fn descend_last(&mut self, idx: usize) -> Option<&mut Node<L>> {
-        self.descend_by(|_, _, _, i| i == idx)
+        self.descend_by(|_, _, i| i == idx)
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`.
     ///
     /// Returns `None` if `f` returned `false` on all children, or if it was a leaf node.
     ///
-    /// The arguments to `f` are exactly the same as in [`Node::gather_traverse`].
+    /// The arguments to `f` are exactly the same as in [`Node::traverse`].
     ///
     /// Panics if tree depth is greater than 8.
     ///
-    /// [`Node::gather_traverse`]: ../enum.Node.html#method.gather_traverse
+    /// [`Node::traverse`]: ../enum.Node.html#method.traverse
     pub fn descend_by<F>(&mut self, mut f: F) -> Option<&mut Node<L>>
-        where F: FnMut(L::Info, L::Info, usize, usize) -> bool
+        where F: FnMut(L::Info, usize, usize) -> bool
     {
         match self.cur_node.take() {
             Some(cur_node) => {
-                let cur_info = self.path_info();
                 let traverse_result = {
-                    match cur_node.gather_traverse(cur_info, |a, b, i, j| f(a, b, i, j)) {
-                        Ok(TraverseSummary { info, index, .. }) => Some((info, index)),
+                    match cur_node.traverse(|a, i, j| f(a, i, j)) {
+                        Ok((_, index)) => Some(index),
                         Err(_) => None,
                     }
                 };
                 match traverse_result {
-                    Some((info, index)) => {
-                        self.descend_raw(cur_node.into_children_raw(), index, info);
+                    Some(index) => {
+                        self.descend_raw(cur_node.into_children_raw(), index);
                         self.cur_node.as_mut()
                     }
                     None => {
@@ -225,18 +217,18 @@ impl<L: Leaf> CursorMut<L> {
         }
     }
 
-    fn descend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize, path_info: L::Info) {
+    fn descend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize) {
         debug_assert!(self.cur_node.is_none());
         let cur_node = RC::make_mut(&mut nodes).remove(idx).unwrap();
         self.cur_node = Some(cur_node);
-        let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
+        let _res = self.steps.push(CursorMutStep { nodes, idx });
         assert!(_res.is_none());
     }
 }
 
 impl<L: Leaf> FromIterator<L> for CursorMut<L> {
     fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
-        let mut curs = CursorMut::new(L::Info::identity());
+        let mut curs = CursorMut::new();
         let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
 
         loop {
@@ -264,12 +256,12 @@ mod tests {
 
     #[test]
     fn insert() {
-        let mut cursor_mut = CursorMut::new(0);
+        let mut cursor_mut = CursorMut::new();
         for i in 1..21 {
             cursor_mut.insert_after(TestLeaf(i));
         }
         let root = cursor_mut.into_root().unwrap();
-        let mut cursor = Cursor::new(&root, 0);
+        let mut cursor = Cursor::new(&root);
         for i in 1..21 {
             assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
         }
