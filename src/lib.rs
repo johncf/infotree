@@ -443,6 +443,13 @@ impl<L: Leaf> Node<L> {
         }
     }
 
+    fn children_mut_must(&mut self) -> &mut NVec<Node<L>> {
+        match self.children_mut() {
+            Some(nodes) => nodes,
+            None => panic!("children_mut_must called on a leaf."),
+        }
+    }
+
     fn into_children_must(self) -> RC<NVec<Node<L>>> {
         match self.into_children() {
             Ok(nodes) => nodes,

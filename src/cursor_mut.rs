@@ -51,6 +51,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         self.cur_node.take()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.cur_node.is_none()
+    }
+
     pub fn current(&mut self) -> Option<&mut Node<L>> {
         self.cur_node.as_mut()
     }
@@ -138,6 +142,11 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    pub fn first_leaf_below(&mut self) -> Option<LeafMut<L>> {
+        while let Some(_) = self.descend_first(0) {}
+        self.current().map(|n| n.leaf_mut().unwrap())
+    }
+
     // FIXME should the cursor should be guaranteed to be in the ancestor line after edit ops?
 
     /// Insert a leaf at the current position if currently focused on a leaf, or as the first leaf
@@ -147,8 +156,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// that the cursor is at the correct location after this.
     ///
     /// _Side node:_ As per the current implementation, the cursor will either be pointing to the
-    /// newly inserted node, or be to an ancestor of the new node, or to one directly on the right
-    /// of an ancestor node. But this behavior may change in future.
+    /// newly inserted node, or to an ancestor of the new node, or to one directly on the right of
+    /// an ancestor node. But this behavior may change in future.
     pub fn insert(&mut self, leaf: L) {
         while let Some(_) = self.descend_first(0) {}
         self.insert_raw(Node::from_leaf(leaf), false);
@@ -164,34 +173,13 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///
     /// It is unspecified where the cursor will be after this operation. The user should ensure
     /// that the cursor is at the correct location after this.
-    ///
-    /// Panics if called on a leaf node.
     pub fn remove(&mut self) -> Option<Node<L>> {
         // the cursor should point to the same position if possible, or if there are no children on
         // the right to replace it, move left, or if it underflows, move up and merge with an
         // adjacent node.
         match self.cur_node.take() {
             Some(cur_node) => {
-                if let Some(CursorMutStep { mut nodes, mut idx, mut path_info }) = self.steps.pop() {
-                    let nodes_len = nodes.len();
-                    let steps_len = self.steps.len();
-                    if nodes_len >= MIN_CHILDREN || (steps_len == 0 && nodes_len > 0) {
-                        if idx == nodes_len {
-                            idx -= 1;
-                        }
-                        self.cur_node = RC::make_mut(&mut nodes).remove(idx);
-                        if nodes_len > 1 { // nodes is non-empty after remove
-                            path_info = path_info.extend_inv(self.current().unwrap().info());
-                            self.steps.push(CursorMutStep { nodes, idx, path_info });
-                        }
-                    } else if steps_len > 0 {
-                        debug_assert_eq!(nodes_len, MIN_CHILDREN - 1);
-                        // TODO rebalance
-                        unimplemented!()
-                    } else {
-                        unreachable!() // at no point should there be an empty nodes list in steps
-                    }
-                } // else { the cursor became empty. nothing to do. }
+                self.fix_current();
                 Some(cur_node)
             },
             None => None, // cursor is empty
@@ -243,6 +231,67 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    // Find a replacement node for the current node. May ascend the tree multiple times.
+    fn fix_current(&mut self) {
+        if let Some(CursorMutStep { mut nodes, mut idx, mut path_info }) = self.steps.pop() {
+            let nodes_len = nodes.len();
+            let steps_len = self.steps.len();
+            if nodes_len >= MIN_CHILDREN || (steps_len == 0 && nodes_len > 0) {
+                if idx == nodes_len {
+                    idx -= 1;
+                }
+                self.cur_node = RC::make_mut(&mut nodes).remove(idx);
+                if nodes_len > 1 { // nodes is non-empty after remove
+                    path_info = path_info.extend_inv(self.current().unwrap().info());
+                    self.steps.push(CursorMutStep { nodes, idx, path_info });
+                }
+            } else if steps_len > 0 {
+                debug_assert_eq!(nodes_len, MIN_CHILDREN - 1);
+                self.cur_node = Some(Node::from_children(nodes));
+                self.merge_adjacent();
+            } else {
+                unreachable!() // at no point should there be an empty nodes list in steps
+            }
+        } // else { the cursor became empty. nothing to do. }
+    }
+
+    // Merge the current node with an adjacent one to make it balanced.
+    fn merge_adjacent(&mut self) {
+        let CursorMutStep { mut nodes, mut idx, mut path_info } = self.steps.pop().unwrap();
+        let mut cur_node = self.cur_node.take().unwrap();
+        let merge_with_right = idx < nodes.len(); // merge with the right node by default
+        debug_assert!(nodes.len() > 0);
+        let merged;
+        {
+            let nodes = RC::make_mut(&mut nodes);
+            merged = if merge_with_right {
+                let right = nodes.get_mut(idx).unwrap();
+                balance_maybe_merge(cur_node.children_mut_must(), right.children_mut_must())
+            } else {
+                let left = nodes.get_mut(idx - 1).unwrap();
+                path_info = path_info.extend_inv(left.info());
+                balance_maybe_merge(left.children_mut_must(), cur_node.children_mut_must())
+            };
+            if merged {
+                if merge_with_right {
+                    // swap in cur_node
+                    std::mem::swap(&mut cur_node, nodes.get_mut(idx).unwrap());
+                } else {
+                    // cur_node is empty and idx == nodes.len()
+                    idx -= 1;
+                }
+            } else {
+                if !merge_with_right {
+                    path_info = path_info.extend(nodes.get(idx - 1).unwrap().info());
+                }
+                self.cur_node = Some(cur_node);
+            }
+        };
+        let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
+        debug_assert!(_res.is_none());
+        if merged { self.fix_current(); }
+    }
+
     fn descend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize, path_info: P) {
         debug_assert!(self.cur_node.is_none());
         let cur_node = RC::make_mut(&mut nodes).remove(idx).unwrap();
@@ -292,6 +341,21 @@ mod tests {
             assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
         }
         assert_eq!(cursor.next_leaf(), None);
+    }
+
+    #[test]
+    fn delete() {
+        let mut cursor_mut = CursorMutT::new();
+        for i in 0..128 {
+            cursor_mut.insert_after(TestLeaf(i));
+        }
+        for i in 0..128 {
+            cursor_mut.reset();
+            cursor_mut.first_leaf_below();
+            println!("{}", i);
+            assert_eq!(cursor_mut.remove().and_then(|n| n.into_leaf().ok()), Some(TestLeaf(i)));
+        }
+        assert_eq!(cursor_mut.is_empty(), true);
     }
 
     // FIXME need more tests
