@@ -109,7 +109,7 @@ impl<L: Leaf> Node<L> {
 
     /// All nodes should be at the same height, panics otherwise.
     #[inline]
-    pub fn from_nodes(nodes: RC<NVec<Node<L>>>) -> Node<L> {
+    pub fn from_children(nodes: RC<NVec<Node<L>>>) -> Node<L> {
         let height = nodes[0].height() + 1;
         let mut info = nodes[0].info();
         for child in &nodes[1..] {
@@ -117,6 +117,22 @@ impl<L: Leaf> Node<L> {
             info = info.gather(child.info());
         }
         Node::Internal(InternalVal { info, height, nodes })
+    }
+
+    /// TODO
+    pub fn into_leaf(self) -> Result<L, Node<L>> {
+        match self {
+            node @ Node::Internal(_) => Err(node),
+            Node::Leaf(LeafVal { val, .. }) => Ok(val),
+        }
+    }
+
+    /// TODO
+    pub fn into_children(self) -> Result<RC<NVec<Node<L>>>, Node<L>> {
+        match self {
+            Node::Internal(InternalVal { nodes, .. }) => Ok(nodes),
+            node @ Node::Leaf(_) => Err(node),
+        }
     }
 
     /// Returns the info for this node, gathered from all its leaves.
@@ -144,10 +160,18 @@ impl<L: Leaf> Node<L> {
     /// Get the child nodes of this node. If this is a leaf node, this will return an empty slice.
     ///
     /// Note that internal nodes always contain at least one child node.
-    pub fn children(&self) -> &[Node<L>] {
+    pub fn children(&self) -> Option<&NVec<Node<L>>> {
         match *self {
-            Node::Internal(ref int) => &*int.nodes,
-            Node::Leaf(_) => &[],
+            Node::Internal(ref int) => Some(&*int.nodes),
+            Node::Leaf(_) => None,
+        }
+    }
+
+    /// TODO
+    pub fn children_mut(&mut self) -> Option<&mut NVec<Node<L>>> {
+        match *self {
+            Node::Internal(ref mut int) => Some(RC::make_mut(&mut int.nodes)),
+            Node::Leaf(_) => None,
         }
     }
 
@@ -263,7 +287,7 @@ impl<L: Leaf> Node<L> {
 
         match h1.cmp(&h2) {
             cmp::Ordering::Less => {
-                let mut children2 = node2.into_children_raw();
+                let mut children2 = node2.into_children_must();
                 let maybe_newnode = {
                     let children2 = RC::make_mut(&mut children2);
                     if h1 == h2 - 1 && node1.has_min_size() {
@@ -274,7 +298,7 @@ impl<L: Leaf> Node<L> {
                             insert_maybe_split(children2, 0, newnode)
                         } else {
                             debug_assert_eq!(newnode.height(), h2);
-                            let mut newchildren = newnode.into_children_raw();
+                            let mut newchildren = newnode.into_children_must();
                             if {
                                 let newchildren = RC::make_mut(&mut newchildren);
                                 std::mem::swap(newchildren, children2);
@@ -282,28 +306,28 @@ impl<L: Leaf> Node<L> {
                             } { // merged into children2
                                 None
                             } else {
-                                Some(Node::from_nodes(newchildren))
+                                Some(Node::from_children(newchildren))
                             }
                         }
                     }
                 };
-                (Node::from_nodes(children2), maybe_newnode)
+                (Node::from_children(children2), maybe_newnode)
             },
             cmp::Ordering::Equal => {
                 if node1.has_min_size() && node2.has_min_size() {
                     (node1, Some(node2))
                 } else {
-                    let mut children1 = node1.into_children_raw();
-                    let mut children2 = node2.into_children_raw();
+                    let mut children1 = node1.into_children_must();
+                    let mut children2 = node2.into_children_must();
                     if balance_maybe_merge(RC::make_mut(&mut children1), RC::make_mut(&mut children2)) {
-                        (Node::from_nodes(children1), None)
+                        (Node::from_children(children1), None)
                     } else {
-                        (Node::from_nodes(children1), Some(Node::from_nodes(children2)))
+                        (Node::from_children(children1), Some(Node::from_children(children2)))
                     }
                 }
             },
             cmp::Ordering::Greater => {
-                let mut children1 = node1.into_children_raw();
+                let mut children1 = node1.into_children_must();
                 let maybe_newnode = {
                     let len1 = children1.len();
                     let children1 = RC::make_mut(&mut children1);
@@ -316,19 +340,19 @@ impl<L: Leaf> Node<L> {
                             insert_maybe_split(children1, len1, newnode)
                         } else {
                             debug_assert_eq!(newnode.height(), h1);
-                            let mut newchildren = newnode.into_children_raw();
+                            let mut newchildren = newnode.into_children_must();
                             if {
                                 let newchildren = RC::make_mut(&mut newchildren);
                                 balance_maybe_merge(children1, newchildren)
                             } {
                                 None
                             } else {
-                                Some(Node::from_nodes(newchildren))
+                                Some(Node::from_children(newchildren))
                             }
                         }
                     }
                 };
-                (Node::from_nodes(children1), maybe_newnode)
+                (Node::from_children(children1), maybe_newnode)
             }
         }
     }
@@ -377,7 +401,7 @@ fn insert_maybe_split<L: Leaf>(
         let mut after: NVec<_> = nodes.drain(n_left + 1..).collect();
         let res = after.push(extra);
         debug_assert!(res.is_none());
-        Some(Node::from_nodes(RC::new(after)))
+        Some(Node::from_children(RC::new(after)))
     }
 }
 
@@ -412,17 +436,17 @@ pub enum TraverseError {
 }
 
 impl<L: Leaf> Node<L> {
-    fn children_raw(&self) -> &RC<NVec<Node<L>>> {
-        match *self {
-            Node::Internal(ref int) => &int.nodes,
-            Node::Leaf(_) => panic!("children_raw called on a leaf."),
+    fn children_must(&self) -> &NVec<Node<L>> {
+        match self.children() {
+            Some(nodes) => nodes,
+            None => panic!("children_must called on a leaf."),
         }
     }
 
-    fn into_children_raw(self) -> RC<NVec<Node<L>>> {
-        match self {
-            Node::Internal(int) => int.nodes,
-            Node::Leaf(_) => panic!("into_children_raw called on a leaf."),
+    fn into_children_must(self) -> RC<NVec<Node<L>>> {
+        match self.into_children() {
+            Ok(nodes) => nodes,
+            Err(_) => panic!("into_children_must called on a leaf."),
         }
     }
 
@@ -437,7 +461,7 @@ impl<L: Leaf> Node<L> {
         let mut nodes = NVec::new();
         nodes.push(node1);
         nodes.push(node2);
-        Node::from_nodes(RC::new(nodes))
+        Node::from_children(RC::new(nodes))
     }
 }
 
@@ -477,7 +501,7 @@ impl<L: Leaf> FromIterator<L> for InfoTree<L> {
         loop {
             let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
             if nodes.len() > 0 {
-                tree.push_back(Node::from_nodes(RC::new(nodes)));
+                tree.push_back(Node::from_children(RC::new(nodes)));
             } else {
                 break;
             }

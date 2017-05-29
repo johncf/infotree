@@ -73,7 +73,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             Some(cur_node) => match self.steps.pop() {
                 Some(CursorMutStep { mut nodes, idx, .. }) => {
                     RC::make_mut(&mut nodes).insert(idx, cur_node);
-                    let parent = Node::from_nodes(nodes); // compute cumulative info
+                    let parent = Node::from_children(nodes); // compute cumulative info
                     self.cur_node = Some(parent);
                     self.cur_node.as_mut()
                 }
@@ -125,7 +125,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
                 match res {
                     Ok((index, path_info)) => {
-                        self.descend_raw(cur_node.into_children_raw(), index, path_info);
+                        self.descend_raw(cur_node.into_children_must(), index, path_info);
                         self.cur_node.as_mut()
                     }
                     Err(_) => {
@@ -166,7 +166,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// that the cursor is at the correct location after this.
     ///
     /// Panics if called on a leaf node.
-    pub fn remove(&mut self, _idx: usize) -> Option<Node<L>> {
+    pub fn remove(&mut self) -> Option<Node<L>> {
         // the cursor should point to the same position if possible, or if there are no children on
         // the right to replace it, move left, or if it underflows, move up and merge with an
         // adjacent node.
@@ -217,7 +217,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                         let newidx = if after { cstep.idx + 1 } else { cstep.idx };
                         let maybe_split = insert_maybe_split(RC::make_mut(&mut cstep.nodes), newidx, newnode);
                         if let Some(split_node) = maybe_split {
-                            let parent = Node::from_nodes(cstep.nodes); // compute cumulative info
+                            let parent = Node::from_children(cstep.nodes); // compute cumulative info
                             self.cur_node = Some(parent);
                             self.insert_raw(split_node, true);
                         } else {
@@ -266,7 +266,7 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
             }
             let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
             if nodes.len() > 0 {
-                curs.insert_raw((Node::from_nodes(RC::new(nodes))), true);
+                curs.insert_raw((Node::from_children(RC::new(nodes))), true);
             } else {
                 break;
             }
