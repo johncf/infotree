@@ -44,6 +44,16 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
+    /// Returns whether the cursor is currently at the root of the tree.
+    pub fn is_root(&self) -> bool {
+        self.steps.len() == 0
+    }
+
+    /// Height of the current node from leaves.
+    pub fn height(&self) -> usize {
+        self.current().height()
+    }
+
     /// The cumulative info along the path from root to this node. Returns `P::identity()` if the
     /// current node is root.
     pub fn path_info(&self) -> P {
@@ -51,11 +61,6 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
             Some(cstep) => cstep.path_info,
             None => P::identity(),
         }
-    }
-
-    /// The depth (distance from the root) at which the cursor is currently at.
-    pub fn depth(&self) -> usize {
-        self.steps.len()
     }
 
     pub fn reset(&mut self) {

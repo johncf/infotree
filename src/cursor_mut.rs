@@ -55,8 +55,20 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         self.cur_node.is_none()
     }
 
-    pub fn current(&mut self) -> Option<&mut Node<L>> {
-        self.cur_node.as_mut()
+    pub fn current(&self) -> Option<&Node<L>> {
+        self.cur_node.as_ref()
+    }
+
+    /// Returns whether the cursor is currently at the root of the tree.
+    ///
+    /// Returns `true` even if the cursor is empty.
+    pub fn is_root(&self) -> bool {
+        self.steps.len() == 0
+    }
+
+    /// Height of the current node from leaves.
+    pub fn height(&self) -> Option<usize> {
+        self.current().map(|node| node.height())
     }
 
     /// The cumulative info along the path from root to this node. Returns `P::identity()` if the
@@ -68,18 +80,26 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    /// Returns a mutable reference to the leaf's value if the current node is a leaf.
+    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
+        match self.cur_node {
+            Some(ref mut node) => node.leaf_mut(),
+            None => None,
+        }
+    }
+
     pub fn reset(&mut self) {
         while let Some(_) = self.ascend() {}
     }
 
-    pub fn ascend(&mut self) -> Option<&mut Node<L>> {
+    pub fn ascend(&mut self) -> Option<&Node<L>> {
         match self.cur_node.take() {
             Some(cur_node) => match self.steps.pop() {
                 Some(CursorMutStep { mut nodes, idx, .. }) => {
                     RC::make_mut(&mut nodes).insert(idx, cur_node);
                     let parent = Node::from_children(nodes); // compute cumulative info
                     self.cur_node = Some(parent);
-                    self.cur_node.as_mut()
+                    self.cur_node.as_ref()
                 }
                 None => { // cur_node is the root
                     self.cur_node = Some(cur_node);
@@ -90,12 +110,26 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn descend_first(&mut self, idx: usize) -> Option<&mut Node<L>> {
+    pub fn descend_first(&mut self, idx: usize) -> Option<&Node<L>> {
         self.descend_extended(|_, _, i, _| i == idx, false)
     }
 
-    pub fn descend_last(&mut self, idx: usize) -> Option<&mut Node<L>> {
+    pub fn descend_last(&mut self, idx: usize) -> Option<&Node<L>> {
         self.descend_extended(|_, _, _, i| i == idx, true)
+    }
+
+    pub fn descend_first_till(&mut self, height: usize) {
+        while let Some(h) = self.height() {
+            if h > height { self.descend_first(0); }
+            else { break }
+        }
+    }
+
+    pub fn descend_last_till(&mut self, height: usize) {
+        while let Some(h) = self.height() {
+            if h > height { self.descend_last(0); }
+            else { break }
+        }
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`. It internally calls
@@ -106,7 +140,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// The arguments to `f` are exactly the same as in [`Node::traverse`].
     ///
     /// [`Node::traverse`]: ../enum.Node.html#method.traverse
-    pub fn descend<F>(&mut self, mut f: F, reversed: bool) -> Option<&mut Node<L>>
+    pub fn descend<F>(&mut self, mut f: F, reversed: bool) -> Option<&Node<L>>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
         self.descend_extended(|_, a, i, j| f(a, i, j), reversed)
@@ -116,7 +150,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// [`Node::path_traverse`].
     ///
     /// Panics if tree depth is greater than 8.
-    pub fn descend_extended<F>(&mut self, f: F, reversed: bool) -> Option<&mut Node<L>>
+    pub fn descend_extended<F>(&mut self, f: F, reversed: bool) -> Option<&Node<L>>
         where F: FnMut(P, L::Info, usize, usize) -> bool
     {
         match self.cur_node.take() {
@@ -130,7 +164,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                 match res {
                     Ok((index, path_info)) => {
                         self.descend_raw(cur_node.into_children_must(), index, path_info);
-                        self.cur_node.as_mut()
+                        self.cur_node.as_ref()
                     }
                     Err(_) => {
                         self.cur_node = Some(cur_node);
@@ -142,39 +176,30 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn first_leaf_below(&mut self) -> Option<LeafMut<L>> {
-        while let Some(_) = self.descend_first(0) {}
-        self.current().map(|n| n.leaf_mut().unwrap())
-    }
-
-    // FIXME should the cursor should be guaranteed to be in the ancestor line after edit ops?
-
     /// Insert a leaf at the current position if currently focused on a leaf, or as the first leaf
     /// under the current node.
     ///
     /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
-    /// `path_info` will not be reduced (through `extend_inv`). The user should ensure that the
-    /// cursor is at the intended location after this.
+    /// `path_info` will not decrease (or `extend_inv`). The user should ensure that the cursor is
+    /// at the intended location after this.
     pub fn insert(&mut self, leaf: L) {
-        while let Some(_) = self.descend_first(0) {}
+        self.descend_first_till(0);
         self.insert_raw(Node::from_leaf(leaf), false);
     }
 
     /// Same as `insert` but insert after the current node (incl. all its leaf children).
     pub fn insert_after(&mut self, leaf: L) {
-        while let Some(_) = self.descend_last(0) {}
+        self.descend_last_till(0);
         self.insert_raw(Node::from_leaf(leaf), true);
     }
 
     /// Remove the current node and return it. If the cursor is empty, return `None`.
     ///
     /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
-    /// `path_info` will not be increased (through `extend`). The user should ensure that the
-    /// cursor is at the correct location after this.
+    /// `path_info` will not increase (or `extend`). The user should ensure that the cursor is at
+    /// the correct location after this.
     pub fn remove(&mut self) -> Option<Node<L>> {
-        // the cursor should point to the same position if possible, or if there are no children on
-        // the right to replace it, move left, or if it underflows, move up and merge with an
-        // adjacent node.
+        // For consistency with insert, only allow removal of leaves?
         match self.cur_node.take() {
             Some(cur_node) => {
                 self.fix_current();
@@ -304,12 +329,7 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
         let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
 
         loop {
-            loop {
-                match curs.current().map(|node| node.height()) {
-                    Some(h) if h > 1 => { curs.descend_last(0); }
-                    _ => break,
-                }
-            }
+            curs.descend_last_till(1);
             let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
             if nodes.len() > 0 {
                 curs.insert_raw((Node::from_children(RC::new(nodes))), true);
@@ -346,10 +366,9 @@ mod tests {
         for i in 0..128 {
             cursor_mut.insert_after(TestLeaf(i));
         }
+        cursor_mut.reset();
         for i in 0..128 {
-            cursor_mut.reset();
-            cursor_mut.first_leaf_below();
-            println!("{}", i);
+            cursor_mut.descend_first_till(0);
             assert_eq!(cursor_mut.remove().and_then(|n| n.into_leaf().ok()), Some(TestLeaf(i)));
         }
         assert_eq!(cursor_mut.is_empty(), true);
