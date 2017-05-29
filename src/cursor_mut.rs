@@ -152,12 +152,9 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// Insert a leaf at the current position if currently focused on a leaf, or as the first leaf
     /// under the current node.
     ///
-    /// It is unspecified where the cursor will be after this operation. The user should ensure
-    /// that the cursor is at the correct location after this.
-    ///
-    /// _Side node:_ As per the current implementation, the cursor will either be pointing to the
-    /// newly inserted node, or to an ancestor of the new node, or to one directly on the right of
-    /// an ancestor node. But this behavior may change in future.
+    /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
+    /// `path_info` will not be reduced (through `extend_inv`). The user should ensure that the
+    /// cursor is at the intended location after this.
     pub fn insert(&mut self, leaf: L) {
         while let Some(_) = self.descend_first(0) {}
         self.insert_raw(Node::from_leaf(leaf), false);
@@ -171,8 +168,9 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     /// Remove the current node and return it. If the cursor is empty, return `None`.
     ///
-    /// It is unspecified where the cursor will be after this operation. The user should ensure
-    /// that the cursor is at the correct location after this.
+    /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
+    /// `path_info` will not be increased (through `extend`). The user should ensure that the
+    /// cursor is at the correct location after this.
     pub fn remove(&mut self) -> Option<Node<L>> {
         // the cursor should point to the same position if possible, or if there are no children on
         // the right to replace it, move left, or if it underflows, move up and merge with an
@@ -259,30 +257,29 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn merge_adjacent(&mut self) {
         let CursorMutStep { mut nodes, mut idx, mut path_info } = self.steps.pop().unwrap();
         let mut cur_node = self.cur_node.take().unwrap();
-        let merge_with_right = idx < nodes.len(); // merge with the right node by default
+        let at_right_end = idx == nodes.len(); // merge with the right node by default
         debug_assert!(nodes.len() > 0);
         let merged;
         {
             let nodes = RC::make_mut(&mut nodes);
-            merged = if merge_with_right {
-                let right = nodes.get_mut(idx).unwrap();
-                balance_maybe_merge(cur_node.children_mut_must(), right.children_mut_must())
+            merged = if at_right_end {
+                idx -= 1;
+                let left_node = nodes.get_mut(idx).unwrap();
+                path_info = path_info.extend_inv(left_node.info());
+                balance_maybe_merge(left_node.children_mut_must(), cur_node.children_mut_must())
             } else {
-                let left = nodes.get_mut(idx - 1).unwrap();
-                path_info = path_info.extend_inv(left.info());
-                balance_maybe_merge(left.children_mut_must(), cur_node.children_mut_must())
+                let right_node = nodes.get_mut(idx).unwrap();
+                balance_maybe_merge(cur_node.children_mut_must(), right_node.children_mut_must())
             };
             if merged {
-                if merge_with_right {
-                    // swap in cur_node
+                if !at_right_end {
+                    // replace empty right_node with cur_node
                     std::mem::swap(&mut cur_node, nodes.get_mut(idx).unwrap());
-                } else {
-                    // cur_node is empty and idx == nodes.len()
-                    idx -= 1;
                 }
             } else {
-                if !merge_with_right {
-                    path_info = path_info.extend(nodes.get(idx - 1).unwrap().info());
+                if at_right_end {
+                    // make left_node be the current node (for correct path_info)
+                    std::mem::swap(&mut cur_node, nodes.get_mut(idx).unwrap());
                 }
                 self.cur_node = Some(cur_node);
             }

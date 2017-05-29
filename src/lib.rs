@@ -119,19 +119,19 @@ impl<L: Leaf> Node<L> {
         Node::Internal(InternalVal { info, height, nodes })
     }
 
-    /// TODO
+    /// Tries to unwrap the node into leaf. If node is internal, `Err(self)` is returned.
     pub fn into_leaf(self) -> Result<L, Node<L>> {
         match self {
-            node @ Node::Internal(_) => Err(node),
+            Node::Internal(_) => Err(self),
             Node::Leaf(LeafVal { val, .. }) => Ok(val),
         }
     }
 
-    /// TODO
+    /// Tries to unwrap the node into its children. If node is leaf, `Err(self)` is returned.
     pub fn into_children(self) -> Result<RC<NVec<Node<L>>>, Node<L>> {
         match self {
             Node::Internal(InternalVal { nodes, .. }) => Ok(nodes),
-            node @ Node::Leaf(_) => Err(node),
+            Node::Leaf(_) => Err(self),
         }
     }
 
@@ -163,14 +163,6 @@ impl<L: Leaf> Node<L> {
     pub fn children(&self) -> Option<&NVec<Node<L>>> {
         match *self {
             Node::Internal(ref int) => Some(&*int.nodes),
-            Node::Leaf(_) => None,
-        }
-    }
-
-    /// TODO
-    pub fn children_mut(&mut self) -> Option<&mut NVec<Node<L>>> {
-        match *self {
-            Node::Internal(ref mut int) => Some(RC::make_mut(&mut int.nodes)),
             Node::Leaf(_) => None,
         }
     }
@@ -444,9 +436,9 @@ impl<L: Leaf> Node<L> {
     }
 
     fn children_mut_must(&mut self) -> &mut NVec<Node<L>> {
-        match self.children_mut() {
-            Some(nodes) => nodes,
-            None => panic!("children_mut_must called on a leaf."),
+        match *self {
+            Node::Internal(ref mut int) => RC::make_mut(&mut int.nodes),
+            Node::Leaf(_) => panic!("children_mut_must called on a leaf."),
         }
     }
 
