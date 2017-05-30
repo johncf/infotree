@@ -279,7 +279,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                 self.cur_node = Some(Node::from_children(nodes));
                 self.merge_adjacent();
             } else {
-                unreachable!() // at no point should there be an empty nodes list in steps
+                debug_assert!(false); // unreachable! nodes should never be empty
             }
         } // else { the cursor became empty. nothing to do. }
     }
@@ -325,7 +325,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         let cur_node = RC::make_mut(&mut nodes).remove(idx).unwrap();
         self.cur_node = Some(cur_node);
         let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
-        assert!(_res.is_none());
+        assert!(_res.is_none()); // panic if depth was 8
     }
 }
 

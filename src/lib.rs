@@ -375,15 +375,15 @@ fn insert_maybe_split<L: Leaf>(
     newnode: Node<L>
 ) -> Option<Node<L>> {
     if nodes.len() < MAX_CHILDREN {
-        let res = nodes.insert(idx, newnode);
-        debug_assert!(res.is_none());
+        let _res = nodes.insert(idx, newnode);
+        debug_assert!(_res.is_none());
         None
     } else {
         let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
         let n_left = balanced_split(MAX_CHILDREN + 1).0;
         let mut after: NVec<_> = nodes.drain(n_left + 1..).collect();
-        let res = after.push(extra);
-        debug_assert!(res.is_none());
+        let _res = after.push(extra);
+        debug_assert!(_res.is_none());
         Some(Node::from_children(RC::new(after)))
     }
 }
@@ -422,21 +422,21 @@ impl<L: Leaf> Node<L> {
     fn children_must(&self) -> &NVec<Node<L>> {
         match self.children() {
             Some(nodes) => nodes,
-            None => panic!("children_must called on a leaf."),
+            None => unreachable!("buggy children_must call"),
         }
     }
 
     fn children_mut_must(&mut self) -> &mut NVec<Node<L>> {
         match *self {
             Node::Internal(ref mut int) => RC::make_mut(&mut int.nodes),
-            Node::Leaf(_) => panic!("children_mut_must called on a leaf."),
+            Node::Leaf(_) => unreachable!("buggy children_mut_must call"),
         }
     }
 
     fn into_children_must(self) -> RC<NVec<Node<L>>> {
         match self.into_children() {
             Ok(nodes) => nodes,
-            Err(_) => panic!("into_children_must called on a leaf."),
+            Err(_) => unreachable!("buggy into_children_must call"),
         }
     }
 
@@ -491,5 +491,5 @@ mod tests {
         root_of(&tree).height()
     }
 
-    // FIXME need more tests
+    // TODO more tests
 }
