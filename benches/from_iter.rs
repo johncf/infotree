@@ -5,7 +5,7 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::{Leaf, InfoTree, CursorMutT};
+use infotree::{Node, Leaf, CursorMutT};
 use test::Bencher;
 
 use std::collections::LinkedList;
@@ -22,28 +22,28 @@ impl Leaf for TestLeaf {
 }
 
 #[bench]
-fn from_iter_bts(b: &mut Bencher) {
+fn btreeset_collect(b: &mut Bencher) {
     b.iter(|| {
         (0..TOTAL).collect::<BTreeSet<_>>();
     })
 }
 
 #[bench]
-fn from_iter_ll(b: &mut Bencher) {
+fn linkedlist_collect(b: &mut Bencher) {
     b.iter(|| {
         (0..TOTAL).collect::<LinkedList<_>>();
     })
 }
 
 #[bench]
-fn from_iter_cm(b: &mut Bencher) {
+fn cursormut_collect(b: &mut Bencher) {
     b.iter(|| {
         (0..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMutT<_>>();
     })
 }
 
 #[bench]
-fn from_iter_cm_raw(b: &mut Bencher) {
+fn cursormut_insert(b: &mut Bencher) {
     b.iter(|| {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..TOTAL {
@@ -53,14 +53,17 @@ fn from_iter_cm_raw(b: &mut Bencher) {
 }
 
 #[bench]
-fn from_iter_it(b: &mut Bencher) {
+fn node_concat(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).map(|e| TestLeaf(e)).collect::<InfoTree<_>>();
+        let mut node = Node::from_leaf(TestLeaf(0));
+        for i in 1..TOTAL {
+            node = Node::concat(node, Node::from_leaf(TestLeaf(i)));
+        }
     })
 }
 
 #[bench]
-fn from_iter_vec(b: &mut Bencher) {
+fn vec_collect(b: &mut Bencher) {
     b.iter(|| {
         (0..TOTAL).collect::<Vec<_>>();
     })

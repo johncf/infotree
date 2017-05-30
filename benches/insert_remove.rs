@@ -5,7 +5,7 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::{Leaf, InfoTree};
+use infotree::{CursorMutT, Leaf, InfoTree};
 use test::Bencher;
 
 use std::collections::LinkedList;
@@ -22,37 +22,47 @@ impl Leaf for TestLeaf {
 }
 
 #[bench]
-fn insert_remove_bts(b: &mut Bencher) {
-    let mut tree = (0..TOTAL).collect::<BTreeSet<_>>();
+fn btreeset_insert_remove(b: &mut Bencher) {
+    let mut tree = (1..TOTAL).collect::<BTreeSet<_>>();
     b.iter(|| {
-        tree.remove(&0);
         tree.insert(0);
+        tree.remove(&0);
     })
 }
 
 #[bench]
-fn insert_remove_ll(b: &mut Bencher) {
-    let mut ll = (0..TOTAL).collect::<LinkedList<_>>();
+fn linkedlist_push_pop(b: &mut Bencher) {
+    let mut ll = (1..TOTAL).collect::<LinkedList<_>>();
     b.iter(|| {
-        ll.pop_front();
         ll.push_front(0);
+        ll.pop_front();
     })
 }
 
 #[bench]
-fn insert_remove_it(b: &mut Bencher) {
-    let mut tree = (0..TOTAL).map(|e| TestLeaf(e)).collect::<InfoTree<_>>();
+fn cursormut_insert_remove(b: &mut Bencher) {
+    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMutT<_>>();
+    cm.reset();
     b.iter(|| {
-        tree.pop_front();
+        cm.insert(TestLeaf(0));
+        cm.remove_first();
+    })
+}
+
+#[bench]
+fn infotree_push_pop(b: &mut Bencher) {
+    let mut tree = (1..TOTAL).map(|e| TestLeaf(e)).collect::<InfoTree<_>>();
+    b.iter(|| {
         tree.push_front(TestLeaf(0));
+        tree.pop_front();
     })
 }
 
 #[bench]
-fn insert_remove_vec(b: &mut Bencher) {
-    let mut vec = (0..TOTAL).collect::<Vec<_>>();
+fn vec_insert_remove(b: &mut Bencher) {
+    let mut vec = (1..TOTAL).collect::<Vec<_>>();
     b.iter(|| {
-        vec.remove(0);
         vec.insert(0, 0);
+        vec.remove(0);
     })
 }

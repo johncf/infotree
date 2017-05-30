@@ -1,11 +1,7 @@
 use super::*;
 use std::iter::FromIterator;
 
-/// A self-balancing copy-on-write tree data structure.
-///
-/// All major operations are defined in either the `Node` structure, and the cursor types.
-///
-/// See [`Node`](struct.InfoTree.html) for more details.
+/// A self-balancing copy-on-write tree. For testing purposes only.
 #[derive(Clone)]
 pub struct InfoTree<L: Leaf> {
     pub root: Option<Node<L>>,
@@ -61,42 +57,9 @@ impl<L: Leaf> From<Node<L>> for InfoTree<L> {
 
 impl<L: Leaf> FromIterator<L> for InfoTree<L> {
     fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
-        let mut tree = InfoTree::new();
-        let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
-
-        loop {
-            let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
-            if nodes.len() > 0 {
-                tree.concat_last(Node::from_children(RC::new(nodes)));
-            } else {
-                break;
-            }
+        let cursor_mut: CursorMutT<_> = iter.into_iter().collect();
+        InfoTree {
+            root: cursor_mut.into_root()
         }
-        tree
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ::tests::*;
-
-    #[test]
-    fn basics() {
-        let mut tree = InfoTree::new();
-        tree.push_back(TestLeaf(1));
-        assert_eq!(height_of(&tree), 0);
-        assert_eq!(info_of(&tree), 1);
-        tree.push_back(TestLeaf(2));
-        assert_eq!(height_of(&tree), 1);
-        assert_eq!(info_of(&tree), 3);
-        for i in 3..17 {
-            tree.push_back(TestLeaf(i));
-        }
-        assert_eq!(height_of(&tree), 1);
-        assert_eq!(info_of(&tree), 8 * 17);
-        tree.push_back(TestLeaf(17));
-        assert_eq!(height_of(&tree), 2);
-        assert_eq!(info_of(&tree), 9 * 17);
     }
 }
