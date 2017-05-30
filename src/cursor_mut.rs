@@ -1,5 +1,6 @@
 use super::*;
 use std::fmt;
+use std::iter::FromIterator;
 
 // Note: The working of `CursorMut` is fundamentally different from `Cursor`. `CursorMut` can
 //       become empty (iff `cur_node` is empty. `cur_node` empty implies `steps` is also empty).
@@ -193,13 +194,18 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         self.insert_raw(Node::from_leaf(leaf), true);
     }
 
+    /// Remove the first leaf under the current node.
+    pub fn remove_first(&mut self) -> Option<L> {
+        self.descend_first_till(0);
+        self.remove_node().and_then(|n| n.into_leaf().ok())
+    }
+
     /// Remove the current node and return it. If the cursor is empty, return `None`.
     ///
     /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
     /// `path_info` will not increase (or `extend`). The user should ensure that the cursor is at
     /// the correct location after this.
-    pub fn remove(&mut self) -> Option<Node<L>> {
-        // For consistency with insert, only allow removal of leaves?
+    pub fn remove_node(&mut self) -> Option<Node<L>> {
         match self.cur_node.take() {
             Some(cur_node) => {
                 self.fix_current();
@@ -344,7 +350,7 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::tests::*;
+    use ::tests::*;
 
     #[test]
     fn insert() {
@@ -369,7 +375,7 @@ mod tests {
         cursor_mut.reset();
         for i in 0..128 {
             cursor_mut.descend_first_till(0);
-            assert_eq!(cursor_mut.remove().and_then(|n| n.into_leaf().ok()), Some(TestLeaf(i)));
+            assert_eq!(cursor_mut.remove_first(), Some(TestLeaf(i)));
         }
         assert_eq!(cursor_mut.is_empty(), true);
     }

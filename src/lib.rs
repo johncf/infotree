@@ -7,7 +7,6 @@
 extern crate arrayvec;
 
 use std::cmp;
-use std::iter::FromIterator;
 use std::ops::{Deref, DerefMut};
 
 use arrayvec::ArrayVec;
@@ -16,10 +15,12 @@ pub mod cursor;
 pub mod cursor_mut;
 
 pub mod info_ext;
+mod info_tree;
 
 pub use info_ext::PathInfo;
 pub use cursor::CursorT;
 pub use cursor_mut::CursorMutT;
+pub use info_tree::InfoTree;
 
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
@@ -32,16 +33,6 @@ const CURSOR_MAX_HT: usize = 8;
 // => Maximum number of elements = MAX_CHILDREN^CURSOR_P2R_SIZE = 16^8 = 2^32
 
 type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
-
-/// A self-balancing copy-on-write tree data structure.
-///
-/// All major operations are defined in either the `Node` structure, and the cursor types.
-///
-/// See [`Node`](struct.InfoTree.html) for more details.
-#[derive(Clone)]
-pub struct InfoTree<L: Leaf> {
-    pub root: Option<Node<L>>,
-}
 
 /// The leaves of a `InfoTree` should implement this trait.
 ///
@@ -464,51 +455,6 @@ impl<L: Leaf> Node<L> {
     }
 }
 
-impl<L: Leaf> InfoTree<L> {
-    pub fn new() -> InfoTree<L> {
-        InfoTree { root: None }
-    }
-
-    pub fn push_back(&mut self, node: Node<L>) {
-        let root = match self.root.take() {
-            Some(root) => Node::concat(root, node),
-            None => node,
-        };
-        self.root = Some(root);
-    }
-
-    pub fn push_front(&mut self, node: Node<L>) {
-        let root = match self.root.take() {
-            Some(root) => Node::concat(node, root),
-            None => node,
-        };
-        self.root = Some(root);
-    }
-}
-
-impl<L: Leaf> From<Node<L>> for InfoTree<L> {
-    fn from(node: Node<L>) -> InfoTree<L> {
-        InfoTree { root: Some(node) }
-    }
-}
-
-impl<L: Leaf> FromIterator<L> for InfoTree<L> {
-    fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
-        let mut tree = InfoTree::new();
-        let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
-
-        loop {
-            let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
-            if nodes.len() > 0 {
-                tree.push_back(Node::from_children(RC::new(nodes)));
-            } else {
-                break;
-            }
-        }
-        tree
-    }
-}
-
 fn balanced_split(total: usize) -> (usize, usize) {
     debug_assert!(MAX_CHILDREN <= total && total <= 2*MAX_CHILDREN);
     // Make left heavy. Splitting at midpoint is another option
@@ -543,25 +489,6 @@ mod tests {
 
     pub fn height_of<L: Leaf>(tree: &InfoTree<L>) -> usize {
         root_of(&tree).height()
-    }
-
-    #[test]
-    fn basics() {
-        let mut tree = InfoTree::new();
-        tree.push_back(Node::from_leaf(TestLeaf(1)));
-        assert_eq!(height_of(&tree), 0);
-        assert_eq!(info_of(&tree), 1);
-        tree.push_back(Node::from_leaf(TestLeaf(2)));
-        assert_eq!(height_of(&tree), 1);
-        assert_eq!(info_of(&tree), 3);
-        for i in 3..17 {
-            tree.push_back(Node::from_leaf(TestLeaf(i)));
-        }
-        assert_eq!(height_of(&tree), 1);
-        assert_eq!(info_of(&tree), 8 * 17);
-        tree.push_back(Node::from_leaf(TestLeaf(17)));
-        assert_eq!(height_of(&tree), 2);
-        assert_eq!(info_of(&tree), 9 * 17);
     }
 
     // FIXME need more tests

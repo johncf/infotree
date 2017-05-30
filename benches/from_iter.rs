@@ -11,7 +11,7 @@ use test::Bencher;
 use std::collections::LinkedList;
 use std::collections::BTreeSet;
 
-const TOTAL: usize = 40960;
+const TOTAL: usize = 4096;
 
 #[derive(Clone)]
 struct TestLeaf(usize);
