@@ -403,5 +403,16 @@ mod tests {
         assert_eq!(cursor_mut.is_empty(), true);
     }
 
+    #[test]
+    fn from_iter() {
+        let cursor_mut: CursorMutT<_> = (0..128).map(|i| TestLeaf(i)).collect();
+        let root = cursor_mut.into_root().unwrap();
+        let mut cursor = CursorT::new(&root);
+        for i in 0..128 {
+            assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
+        }
+        assert_eq!(cursor.next_leaf(), None);
+    }
+
     // FIXME need more tests
 }

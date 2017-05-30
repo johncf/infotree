@@ -530,12 +530,22 @@ mod tests {
         tree.root.as_ref().expect("tree root was empty")
     }
 
-    pub fn info_of<L: Leaf>(tree: &InfoTree<L>) -> L::Info {
-        root_of(&tree).info()
-    }
-
-    pub fn height_of<L: Leaf>(tree: &InfoTree<L>) -> usize {
-        root_of(&tree).height()
+    #[test]
+    fn concat() {
+        let node = Node::from_leaf(TestLeaf(1));
+        assert_eq!(node.height(), 0);
+        assert_eq!(node.info(), 1);
+        let mut node = Node::concat(node, Node::from_leaf(TestLeaf(2)));
+        assert_eq!(node.height(), 1);
+        assert_eq!(node.info(), 3);
+        for i in 3..17 {
+            node = Node::concat(node, Node::from_leaf(TestLeaf(i)));
+        }
+        assert_eq!(node.height(), 1);
+        assert_eq!(node.info(), 8 * 17);
+        let node = Node::concat(node, Node::from_leaf(TestLeaf(17)));
+        assert_eq!(node.height(), 2);
+        assert_eq!(node.info(), 9 * 17);
     }
 
     // TODO more tests
