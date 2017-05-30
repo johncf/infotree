@@ -492,6 +492,14 @@ impl<L: Leaf> Node<L> {
     fn never() -> Node<L> {
         Node::Never(NeverVal(Private))
     }
+
+    // only do debug_assert with this function
+    fn is_never(&self) -> bool {
+        match *self {
+            Node::Never(_) => true,
+            _ => false,
+        }
+    }
 }
 
 fn balanced_split(total: usize) -> (usize, usize) {
