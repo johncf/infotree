@@ -5,3 +5,4 @@ authors = ["johncf <johncf@protonmail.com>"]
 
 [dependencies]
 arrayvec = "^0.3"
+mines = "^0.2"

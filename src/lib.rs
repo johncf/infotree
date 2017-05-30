@@ -3,13 +3,14 @@
 //! Both design and implementation are heavily based on [xi-rope].
 //!
 //! [xi-rope]: https://github.com/google/xi-editor/tree/master/rust/rope
-
 extern crate arrayvec;
+extern crate mines;
 
 use std::cmp;
 use std::ops::{Deref, DerefMut};
 
 use arrayvec::ArrayVec;
+use mines::boom;
 
 pub mod cursor;
 pub mod cursor_mut;
@@ -77,6 +78,7 @@ pub trait Info: Copy {
 pub enum Node<L: Leaf> {
     Internal(InternalVal<L>),
     Leaf(LeafVal<L>),
+    Never(NeverVal), // for use with CursorMut
 }
 
 #[doc(hidden)]
@@ -93,6 +95,12 @@ pub struct LeafVal<L: Leaf> {
     info: L::Info,
     val: L,
 }
+
+#[derive(Clone)]
+pub struct NeverVal(Private);
+
+#[derive(Clone)]
+struct Private;
 
 impl Info for () {
     #[inline]
@@ -130,6 +138,7 @@ impl<L: Leaf> Node<L> {
         match self {
             Node::Internal(_) => Err(self),
             Node::Leaf(LeafVal { val, .. }) => Ok(val),
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -138,6 +147,7 @@ impl<L: Leaf> Node<L> {
         match self {
             Node::Internal(InternalVal { nodes, .. }) => Ok(nodes),
             Node::Leaf(_) => Err(self),
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -146,6 +156,7 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(InternalVal { info, .. })
                 | Node::Leaf(LeafVal { info, .. }) => info,
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -153,6 +164,7 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(ref int) => int.height,
             Node::Leaf(_) => 0,
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -160,6 +172,7 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(_) => false,
             Node::Leaf(_) => true,
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -170,6 +183,7 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(ref int) => Some(&*int.nodes),
             Node::Leaf(_) => None,
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -178,6 +192,7 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(_) => None,
             Node::Leaf(ref leaf) => Some(&leaf.val),
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -186,6 +201,7 @@ impl<L: Leaf> Node<L> {
         match self {
             &mut Node::Internal(_) => None,
             &mut Node::Leaf(ref mut leaf) => Some(LeafMut(leaf)),
+            &mut Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -209,6 +225,7 @@ impl<L: Leaf> Node<L> {
                 Err(TraverseError::AllFalse)
             }
             &Node::Leaf(_) => Err(TraverseError::IsLeaf),
+            &Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -228,6 +245,7 @@ impl<L: Leaf> Node<L> {
                 Err(TraverseError::AllFalse)
             }
             &Node::Leaf(_) => Err(TraverseError::IsLeaf),
+            &Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -445,6 +463,7 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(ref mut int) => RC::make_mut(&mut int.nodes),
             Node::Leaf(_) => unreachable!("buggy children_mut_must call"),
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -459,6 +478,7 @@ impl<L: Leaf> Node<L> {
         match *self {
             Node::Internal(ref int) => int.nodes.len() >= MIN_CHILDREN,
             Node::Leaf(_) => true,
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -467,6 +487,10 @@ impl<L: Leaf> Node<L> {
         nodes.push(node1);
         nodes.push(node2);
         Node::from_children(RC::new(nodes))
+    }
+
+    fn never() -> Node<L> {
+        Node::Never(NeverVal(Private))
     }
 }
 
