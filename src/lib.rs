@@ -5,9 +5,11 @@
 //! [xi-rope]: https://github.com/google/xi-editor/tree/master/rust/rope
 
 extern crate arrayvec;
+extern crate mines; // boom methods
 
 use std::cmp;
 use std::ops::{Deref, DerefMut};
+use mines::*;
 
 use arrayvec::ArrayVec;
 
@@ -276,7 +278,7 @@ impl<L: Leaf> Node<L> {
                     if h1 == h2 - 1 && node1.has_min_size() {
                         insert_maybe_split(children2, 0, node1)
                     } else {
-                        let newnode = Node::concat(node1, children2.remove(0).unwrap());
+                        let newnode = unsafe { Node::concat(node1, children2.remove(0).boom_some()) };
                         if newnode.height() == h2 - 1 {
                             insert_maybe_split(children2, 0, newnode)
                         } else {
@@ -317,7 +319,7 @@ impl<L: Leaf> Node<L> {
                     if h2 == h1 - 1 && node2.has_min_size() {
                         insert_maybe_split(children1, len1, node2)
                     } else {
-                        let newnode = Node::concat(children1.pop().unwrap(), node2);
+                        let newnode = Node::concat(unsafe { children1.pop().boom_some() }, node2);
                         let len1 = len1 - 1;
                         if newnode.height() == h1 - 1 {
                             insert_maybe_split(children1, len1, newnode)
@@ -375,15 +377,13 @@ fn insert_maybe_split<L: Leaf>(
     newnode: Node<L>
 ) -> Option<Node<L>> {
     if nodes.len() < MAX_CHILDREN {
-        let _res = nodes.insert(idx, newnode);
-        debug_assert!(_res.is_none());
+        unsafe { nodes.insert(idx, newnode).boom_none(); }
         None
     } else {
-        let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
+        let extra = unsafe { nodes.insert(idx, newnode).boom_some() }; // like unwrap_err
         let n_left = balanced_split(MAX_CHILDREN + 1).0;
         let mut after: NVec<_> = nodes.drain(n_left + 1..).collect();
-        let _res = after.push(extra);
-        debug_assert!(_res.is_none());
+        unsafe { after.push(extra).boom_none(); }
         Some(Node::from_children(RC::new(after)))
     }
 }
@@ -422,21 +422,21 @@ impl<L: Leaf> Node<L> {
     fn children_must(&self) -> &NVec<Node<L>> {
         match self.children() {
             Some(nodes) => nodes,
-            None => unreachable!("buggy children_must call"),
+            None => unsafe { boom("children_must called on leaf") },
         }
     }
 
     fn children_mut_must(&mut self) -> &mut NVec<Node<L>> {
         match *self {
             Node::Internal(ref mut int) => RC::make_mut(&mut int.nodes),
-            Node::Leaf(_) => unreachable!("buggy children_mut_must call"),
+            Node::Leaf(_) => unsafe { boom("children_mut_must called on leaf") },
         }
     }
 
     fn into_children_must(self) -> RC<NVec<Node<L>>> {
         match self.into_children() {
             Ok(nodes) => nodes,
-            Err(_) => unreachable!("buggy into_children_must call"),
+            Err(_) => unsafe { boom("into_children_must called on leaf") },
         }
     }
 
@@ -449,8 +449,10 @@ impl<L: Leaf> Node<L> {
 
     fn merge_two(node1: Node<L>, node2: Node<L>) -> Node<L> {
         let mut nodes = NVec::new();
-        nodes.push(node1);
-        nodes.push(node2);
+        unsafe {
+            nodes.push(node1).boom_none();
+            nodes.push(node2).boom_none();
+        }
         Node::from_children(RC::new(nodes))
     }
 }

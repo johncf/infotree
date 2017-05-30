@@ -229,8 +229,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                 assert_eq!(cur_node.height(), newnode.height());
                 match self.steps.pop() {
                     Some(mut cstep) => {
-                        let _res = RC::make_mut(&mut cstep.nodes).insert(cstep.idx, cur_node);
-                        debug_assert!(_res.is_none());
+                        unsafe { RC::make_mut(&mut cstep.nodes).insert(cstep.idx, cur_node).boom_none() };
                         let newidx = if after { cstep.idx + 1 } else { cstep.idx };
                         let maybe_split = insert_maybe_split(RC::make_mut(&mut cstep.nodes), newidx, newnode);
                         if let Some(split_node) = maybe_split {
@@ -271,7 +270,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                 }
                 self.cur_node = RC::make_mut(&mut nodes).remove(idx);
                 if nodes_len > 1 { // nodes is non-empty after remove
-                    path_info = path_info.extend_inv(self.current().unwrap().info());
+                    path_info = path_info.extend_inv(unsafe { self.current().boom_some() }.info());
                     self.steps.push(CursorMutStep { nodes, idx, path_info });
                 }
             } else if steps_len > 0 {
@@ -286,8 +285,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     // Merge the current node with an adjacent one to make it balanced.
     fn merge_adjacent(&mut self) {
-        let CursorMutStep { mut nodes, mut idx, mut path_info } = self.steps.pop().unwrap();
-        let mut cur_node = self.cur_node.take().unwrap();
+        let CursorMutStep { mut nodes, mut idx, mut path_info } = unsafe { self.steps.pop().boom_some() };
+        let mut cur_node = unsafe { self.cur_node.take().boom_some() };
         let at_right_end = idx == nodes.len(); // merge with the right node by default
         debug_assert!(nodes.len() > 0);
         let merged;
@@ -295,34 +294,33 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             let nodes = RC::make_mut(&mut nodes);
             merged = if at_right_end {
                 idx -= 1;
-                let left_node = nodes.get_mut(idx).unwrap();
+                let left_node = unsafe { nodes.boom_get_mut(idx) };
                 path_info = path_info.extend_inv(left_node.info());
                 balance_maybe_merge(left_node.children_mut_must(), cur_node.children_mut_must())
             } else {
-                let right_node = nodes.get_mut(idx).unwrap();
+                let right_node = unsafe { nodes.boom_get_mut(idx) };
                 balance_maybe_merge(cur_node.children_mut_must(), right_node.children_mut_must())
             };
             if merged {
                 if !at_right_end {
                     // replace empty right_node with cur_node
-                    std::mem::swap(&mut cur_node, nodes.get_mut(idx).unwrap());
+                    std::mem::swap(&mut cur_node, unsafe { nodes.boom_get_mut(idx) });
                 }
             } else {
                 if at_right_end {
                     // make left_node be the current node (for correct path_info)
-                    std::mem::swap(&mut cur_node, nodes.get_mut(idx).unwrap());
+                    std::mem::swap(&mut cur_node, unsafe { nodes.boom_get_mut(idx) });
                 }
                 self.cur_node = Some(cur_node);
             }
         };
-        let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
-        debug_assert!(_res.is_none());
+        unsafe { self.steps.push(CursorMutStep { nodes, idx, path_info }).boom_none() };
         if merged { self.fix_current(); }
     }
 
     fn descend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize, path_info: P) {
         debug_assert!(self.cur_node.is_none());
-        let cur_node = RC::make_mut(&mut nodes).remove(idx).unwrap();
+        let cur_node = unsafe { RC::make_mut(&mut nodes).remove(idx).boom_some() };
         self.cur_node = Some(cur_node);
         let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
         assert!(_res.is_none()); // panic if depth was 8
