@@ -12,6 +12,7 @@ mod macros;
 pub mod cursor;
 pub mod node;
 pub mod traits;
+pub mod list;
 
 #[cfg(test)]
 extern crate rand;
