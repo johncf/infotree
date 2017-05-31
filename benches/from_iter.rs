@@ -47,7 +47,7 @@ fn cursormut_insert(b: &mut Bencher) {
     b.iter(|| {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..TOTAL {
-            cursor_mut.insert_after(TestLeaf(i));
+            cursor_mut.insert_last(TestLeaf(i));
         }
     })
 }

@@ -94,6 +94,13 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    /// Returns the position of the current node with respect to its sibling nodes. The pair
+    /// indicate `(left_index, right_index)`, or more simply, the number of siblings to the left
+    /// and to the right respectively.
+    pub fn position(&self) -> Option<(usize, usize)> {
+        self.steps.last().map(|cstep| (cstep.idx, cstep.nodes.len() - cstep.idx - 1))
+    }
+
     pub fn reset(&mut self) {
         while let Some(_) = self.ascend() {}
     }
@@ -180,19 +187,22 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    /// Insert a leaf at the current position if currently focused on a leaf, or as the first leaf
-    /// under the current node.
+    /// Insert `leaf` at the current position if at the bottom of tree, or insert it as the first
+    /// leaf under the current node.
     ///
     /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
     /// `path_info` will not decrease (or `extend_inv`). The user should ensure that the cursor is
     /// at the intended location after this.
-    pub fn insert(&mut self, leaf: L) {
+    pub fn insert_first(&mut self, leaf: L) {
         self.descend_first_till(0);
         self.insert_raw(Node::from_leaf(leaf), false);
     }
 
-    /// Same as `insert` but insert after the current node (incl. all its leaf children).
-    pub fn insert_after(&mut self, leaf: L) {
+    /// Same as `insert_first` but insert after the current node if at the bottom of tree, or
+    /// insert it as the last leaf under the current node.
+    ///
+    /// The cursor behavior is the same as `insert_first`.
+    pub fn insert_last(&mut self, leaf: L) {
         self.descend_last_till(0);
         self.insert_raw(Node::from_leaf(leaf), true);
     }
@@ -300,7 +310,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         } // else { the cursor became empty. nothing to do. }
     }
 
-    // Merge the current node with an adjacent one to make it balanced.
+    // Merge the current node with an adjacent sibling to make it balanced.
     fn merge_adjacent(&mut self) {
         debug_assert!(!self.cur_node.is_never());
         let CursorMutStep { mut nodes, mut idx, mut path_info } = self.steps.pop().unwrap();
@@ -341,7 +351,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         debug_assert!(self.current().is_none());
         mem::swap(&mut self.cur_node, RC::make_mut(&mut nodes).get_mut(idx).unwrap());
         let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
-        assert!(_res.is_none()); // panic if depth was 8
+        assert!(_res.is_none(), "Exceeded maximum supported depth.");
     }
 
     fn take_current(&mut self) -> Option<Node<L>> {
@@ -379,7 +389,7 @@ mod tests {
     fn insert() {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..128 {
-            cursor_mut.insert_after(TestLeaf(i));
+            cursor_mut.insert_last(TestLeaf(i));
         }
         let root = cursor_mut.into_root().unwrap();
         let mut cursor = CursorT::new(&root);
@@ -393,7 +403,7 @@ mod tests {
     fn delete() {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..128 {
-            cursor_mut.insert_after(TestLeaf(i));
+            cursor_mut.insert_last(TestLeaf(i));
         }
         cursor_mut.reset();
         for i in 0..128 {
