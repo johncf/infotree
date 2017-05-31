@@ -120,24 +120,24 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn descend_first(&mut self, idx: usize) -> Option<&Node<L>> {
+    pub fn descend_left(&mut self, idx: usize) -> Option<&Node<L>> {
         self.descend_extended(|_, _, i, _| i == idx, false)
     }
 
-    pub fn descend_last(&mut self, idx: usize) -> Option<&Node<L>> {
+    pub fn descend_right(&mut self, idx: usize) -> Option<&Node<L>> {
         self.descend_extended(|_, _, _, i| i == idx, true)
     }
 
     pub fn descend_first_till(&mut self, height: usize) {
         while let Some(h) = self.height() {
-            if h > height { self.descend_first(0); }
+            if h > height { self.descend_left(0); }
             else { break }
         }
     }
 
     pub fn descend_last_till(&mut self, height: usize) {
         while let Some(h) = self.height() {
-            if h > height { self.descend_last(0); }
+            if h > height { self.descend_right(0); }
             else { break }
         }
     }
@@ -432,6 +432,26 @@ mod tests {
             assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
         }
         assert_eq!(cursor.next_leaf(), None);
+    }
+
+    #[test]
+    fn root_balance() {
+        let mut cursor_mut: CursorMutT<_> = (0..2).map(|i| TestLeaf(i)).collect();
+        cursor_mut.remove_first();
+        cursor_mut.reset();
+        assert_eq!(cursor_mut.height(), Some(1)); // allow root with single leaf child
+
+        let mut cursor_mut: CursorMutT<_> = (0..17).map(|i| TestLeaf(i)).collect();
+        cursor_mut.reset();
+        assert_eq!(cursor_mut.height(), Some(2));
+        cursor_mut.descend_left(0);
+        cursor_mut.remove_node(); // now root has only one child
+        cursor_mut.reset();
+        assert_eq!(cursor_mut.height(), Some(2));
+        cursor_mut.remove_first();
+        cursor_mut.remove_first();
+        cursor_mut.reset();
+        assert_eq!(cursor_mut.height(), Some(1));
     }
 
     // FIXME need more tests
