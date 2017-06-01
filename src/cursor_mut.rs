@@ -86,11 +86,25 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     }
 
     /// The cumulative info along the path from root to this node. Returns `P::identity()` if the
-    /// current node is root.
+    /// current node is root or cursor is empty.
     pub fn path_info(&self) -> P {
         match self.steps.last() {
             Some(cstep) => cstep.path_info,
             None => P::identity(),
+        }
+    }
+
+    /// The `path_info` till this node and after.
+    ///
+    /// Returns `Some((p, p.extend(current.info())))` where `p` is `path_info()` if cursor is
+    /// non-empty, `None` otherwise.
+    pub fn path_interval(&self) -> Option<(P, P)> {
+        match self.current() {
+            Some(cur_node) => Some({
+                let path_info = self.path_info();
+                (path_info, path_info.extend(cur_node.info()))
+            }),
+            None => None,
         }
     }
 
