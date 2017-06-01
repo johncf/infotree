@@ -198,6 +198,72 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    /// Make the cursor point to the next element at the same height.
+    ///
+    /// If there is no next element, it returns `None` and cursor resets to root.
+    pub fn next_node(&mut self) -> Option<&Node<L>> {
+        let mut depth_delta = 0;
+        loop {
+            match self.steps.pop() {
+                Some(CursorMutStep { mut nodes, mut idx, mut path_info }) => {
+                    debug_assert!(!self.cur_node.is_never());
+                    if idx + 1 < nodes.len() {
+                        { // nodes mut borrow
+                            let nodes = RC::make_mut(&mut nodes);
+                            path_info = path_info.extend(self.cur_node.info());
+                            self.swap_current(nodes, idx);
+                            idx += 1;
+                            self.swap_current(nodes, idx);
+                        }
+                        self.steps.push(CursorMutStep { nodes, idx, path_info });
+                        while depth_delta > 0 {
+                            self.descend_left(0).unwrap();
+                            depth_delta -= 1;
+                        }
+                        return Some(&self.cur_node);
+                    } else {
+                        self.ascend_raw(nodes, idx);
+                        depth_delta += 1;
+                    }
+                }
+                None => return None, // at the root
+            }
+        }
+    }
+
+    /// Make the cursor point to the previous element at the same height.
+    ///
+    /// If there is no previous element, it returns `None` and cursor resets to root.
+    pub fn prev_node(&mut self) -> Option<&Node<L>> {
+        let mut depth_delta = 0;
+        loop {
+            match self.steps.pop() {
+                Some(CursorMutStep { mut nodes, mut idx, mut path_info }) => {
+                    debug_assert!(!self.cur_node.is_never());
+                    if idx > 0 {
+                        { // nodes mut borrow
+                            let nodes = RC::make_mut(&mut nodes);
+                            self.swap_current(nodes, idx);
+                            idx -= 1;
+                            self.swap_current(nodes, idx);
+                            path_info = path_info.extend_inv(self.cur_node.info());
+                        }
+                        self.steps.push(CursorMutStep { nodes, idx, path_info });
+                        while depth_delta > 0 {
+                            self.descend_right(0).unwrap();
+                            depth_delta -= 1;
+                        }
+                        return Some(&self.cur_node);
+                    } else {
+                        self.ascend_raw(nodes, idx);
+                        depth_delta += 1;
+                    }
+                }
+                None => return None, // at the root
+            }
+        }
+    }
+
     /// Insert `leaf` at the current position if at the bottom of tree, or insert it as the first
     /// leaf under the current node.
     ///
@@ -475,6 +541,18 @@ mod tests {
         cursor_mut.remove_first();
         cursor_mut.reset();
         assert_eq!(cursor_mut.height(), Some(1));
+    }
+
+    #[test]
+    fn node_iter() {
+        let mut cursor_mut: CursorMutT<_> = (0..128).map(|i| TestLeaf(i)).collect();
+        cursor_mut.reset();
+        cursor_mut.descend_first_till(0);
+        assert_eq!(cursor_mut.current().and_then(|n| n.leaf()), Some(&TestLeaf(0)));
+        for i in 1..128 {
+            assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), Some(&TestLeaf(i)));
+        }
+        assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), None);
     }
 
     // FIXME need more tests
