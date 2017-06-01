@@ -124,17 +124,15 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
     }
 
-    /// Make the cursor point to the next element at the same depth.
+    /// Make the cursor point to the next element at the same height.
     ///
-    /// If there is no next element, the cursor remains in the original position.
+    /// If there is no next element, it returns `None` and cursor resets to root.
     pub fn next_node(&mut self) -> Option<&'a Node<L>> {
-        let mut steps_clone = self.steps.clone();
         let mut depth_delta = 0;
         loop {
-            match steps_clone.pop() {
+            match self.steps.pop() {
                 Some(CursorStep { nodes, mut idx, mut path_info }) => {
                     if idx + 1 < nodes.len() {
-                        self.steps = steps_clone;
                         path_info = path_info.extend(nodes[idx].info());
                         idx += 1;
                         self.steps.push(CursorStep { nodes, idx, path_info });
@@ -153,17 +151,15 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    /// Make the cursor point to the previous element at the same depth.
+    /// Make the cursor point to the previous element at the same height.
     ///
-    /// If there is no previous element, the cursor remains in the original position.
+    /// If there is no previous element, it returns `None` and cursor resets to root.
     pub fn prev_node(&mut self) -> Option<&'a Node<L>> {
-        let mut steps_clone = self.steps.clone();
         let mut depth_delta = 0;
         loop {
-            match steps_clone.pop() {
+            match self.steps.pop() {
                 Some(CursorStep { nodes, mut idx, mut path_info }) => {
                     if idx > 0 {
-                        self.steps = steps_clone;
                         idx -= 1;
                         path_info = path_info.extend_inv(nodes[idx].info());
                         self.steps.push(CursorStep { nodes, idx, path_info });
@@ -192,8 +188,10 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         self.current().leaf().unwrap()
     }
 
-    /// If the current node is a leaf, try to fetch the next leaf in order, otherwise it calls
-    /// `first_leaf_below`.
+    /// If the current node is a leaf, calls `next_node`, otherwise calls `first_leaf_below`.
+    ///
+    /// Thus at the last leaf of the tree, it returns `None` and cursor resets to root, therefore
+    /// calling `next_leaf` again will return the first leaf of the tree.
     pub fn next_leaf(&mut self) -> Option<&'a L> {
         match self.current().leaf() {
             None => Some(self.first_leaf_below()),
@@ -201,10 +199,10 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    /// If the current node is a leaf, try to fetch the previous leaf in order, otherwise it calls
-    /// `last_leaf_below`.
+    /// If the current node is a leaf, calls `prev_node`, otherwise calls `last_leaf_below`.
     ///
-    /// Per the current implementation, `next_leaf` is more efficient than `prev_leaf`.
+    /// Thus at the first leaf of the tree, it returns `None` and cursor resets to root, therefore
+    /// calling `prev_leaf` again will return the last leaf of the tree.
     pub fn prev_leaf(&mut self) -> Option<&'a L> {
         match self.current().leaf() {
             None => Some(self.last_leaf_below()),
