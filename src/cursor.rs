@@ -72,12 +72,12 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     }
 
     /// Descend on the `idx`-th child from left. The first child is numbered `0`.
-    pub fn descend_first(&mut self, idx: usize) -> Option<&'a Node<L>> {
+    pub fn descend_left(&mut self, idx: usize) -> Option<&'a Node<L>> {
         self.descend_extended(|_, _, i, _| i == idx, false)
     }
 
     /// Descend on the `idx`-th child from right. The last child is numbered `0`.
-    pub fn descend_last(&mut self, idx: usize) -> Option<&'a Node<L>> {
+    pub fn descend_right(&mut self, idx: usize) -> Option<&'a Node<L>> {
         self.descend_extended(|_, _, _, i| i == idx, true)
     }
 
@@ -138,7 +138,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
                         self.steps.push(CursorStep { nodes, idx, path_info });
                         while depth_delta > 0 {
                             // descend the left-most element
-                            self.descend_first(0).unwrap();
+                            self.descend_left(0).unwrap();
                             depth_delta -= 1;
                         }
                         return Some(self.current());
@@ -165,7 +165,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
                         self.steps.push(CursorStep { nodes, idx, path_info });
                         while depth_delta > 0 {
                             // descend the right-most element
-                            self.descend_last(0).unwrap();
+                            self.descend_right(0).unwrap();
                             depth_delta -= 1;
                         }
                         return Some(self.current());
@@ -179,12 +179,12 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     }
 
     pub fn first_leaf_below(&mut self) -> &'a L {
-        while let Some(_) = self.descend_first(0) {}
+        while let Some(_) = self.descend_left(0) {}
         self.current().leaf().unwrap()
     }
 
     pub fn last_leaf_below(&mut self) -> &'a L {
-        while let Some(_) = self.descend_last(0) {}
+        while let Some(_) = self.descend_right(0) {}
         self.current().leaf().unwrap()
     }
 
