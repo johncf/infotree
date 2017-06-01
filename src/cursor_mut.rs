@@ -121,14 +121,11 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     pub fn ascend(&mut self) -> Option<&Node<L>> {
         match self.steps.pop() {
-            Some(CursorMutStep { mut nodes, idx, .. }) => {
-                mem::swap(&mut self.cur_node, RC::make_mut(&mut nodes).get_mut(idx).unwrap());
-                debug_assert!(self.cur_node.is_never());
-                let parent = Node::from_children(nodes); // gather info
-                self.cur_node = parent;
+            Some(CursorMutStep { nodes, idx, .. }) => {
+                self.ascend_raw(nodes, idx);
                 self.current()
             }
-            None => { // cur_node is the root
+            None => { // cur_node is the root (or empty)
                 None
             }
         }
@@ -262,37 +259,36 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn insert_raw(&mut self, newnode: Node<L>, after: bool) {
-        match self.take_current() {
-            Some(mut cur_node) => {
-                assert_eq!(cur_node.height(), newnode.height());
+        match self.current() {
+            Some(_) => {
+                assert_eq!(self.cur_node.height(), newnode.height());
                 match self.steps.pop() {
                     Some(CursorMutStep { mut nodes, mut idx, mut path_info }) => {
                         let maybe_split = {
                             let nodes = RC::make_mut(&mut nodes);
-                            let cur_info = cur_node.info();
-                            mem::swap(&mut cur_node, nodes.get_mut(idx).unwrap());
+                            let cur_info = self.cur_node.info();
+                            self.swap_current(nodes, idx);
                             if after {
                                 path_info = path_info.extend(cur_info);
                                 idx += 1;
                             }
                             insert_maybe_split(nodes, idx, newnode)
                         };
-                        debug_assert!(cur_node.is_never());
+                        // now self.cur_node.is_never() // checked in swap_current
                         if let Some(split_node) = maybe_split {
                             let parent = Node::from_children(nodes); // gather info
                             self.cur_node = parent;
                             self.insert_raw(split_node, true);
                         } else {
-                            mem::swap(&mut self.cur_node, RC::make_mut(&mut nodes).get_mut(idx).unwrap());
+                            self.swap_current(RC::make_mut(&mut nodes), idx);
                             self.steps.push(CursorMutStep { nodes, idx, path_info });
                         }
-                        debug_assert!(!self.cur_node.is_never());
                     }
                     None => { // cur_node is the root
                         self.cur_node = if after {
-                            Node::concat(cur_node, newnode)
+                            Node::concat(self.take_current().unwrap(), newnode)
                         } else {
-                            Node::concat(newnode, cur_node)
+                            Node::concat(newnode, self.take_current().unwrap())
                         };
                     }
                 }
@@ -314,7 +310,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             if idx == nodes_len {
                 idx -= 1;
             }
-            mem::swap(&mut self.cur_node, RC::make_mut(&mut nodes).get_mut(idx).unwrap());
+            self.swap_current(RC::make_mut(&mut nodes), idx);
             debug_assert!(self.cur_node.children().map_or(true, |c| c.len() >= MIN_CHILDREN));
             path_info = path_info.extend_inv(self.cur_node.info());
             self.steps.push(CursorMutStep { nodes, idx, path_info });
@@ -350,14 +346,14 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             if merged {
                 if !at_right_end {
                     nodes.remove(idx + 1).unwrap(); // remove the now empty right_node
-                    mem::swap(&mut self.cur_node, nodes.get_mut(idx).unwrap());
+                    self.swap_current(nodes, idx);
                 }
                 debug_assert!(self.cur_node.is_never());
             } else {
                 if at_right_end {
-                    mem::swap(&mut self.cur_node, nodes.get_mut(idx).unwrap());
+                    self.swap_current(nodes, idx);
                     idx -= 1; // make left_node be the current node (for path_info correctness)
-                    mem::swap(&mut self.cur_node, nodes.get_mut(idx).unwrap());
+                    self.swap_current(nodes, idx);
                 }
                 debug_assert!(!self.cur_node.is_never());
             }
@@ -371,11 +367,24 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    fn ascend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize) {
+        debug_assert!(!self.cur_node.is_never());
+        self.swap_current(RC::make_mut(&mut nodes), idx);
+        let parent = Node::from_children(nodes); // gather info
+        self.cur_node = parent;
+    }
+
     fn descend_raw(&mut self, mut nodes: RC<NVec<Node<L>>>, idx: usize, path_info: P) {
-        debug_assert!(self.current().is_none());
-        mem::swap(&mut self.cur_node, RC::make_mut(&mut nodes).get_mut(idx).unwrap());
+        debug_assert!(self.cur_node.is_never());
+        self.swap_current(RC::make_mut(&mut nodes), idx);
         let _res = self.steps.push(CursorMutStep { nodes, idx, path_info });
         assert!(_res.is_none(), "Exceeded maximum supported depth.");
+    }
+
+    fn swap_current(&mut self, nodes: &mut NVec<Node<L>>, idx: usize) {
+        let _never_before = self.cur_node.is_never();
+        mem::swap(&mut self.cur_node, nodes.get_mut(idx).unwrap());
+        debug_assert!(self.cur_node.is_never() != _never_before);
     }
 
     fn take_current(&mut self) -> Option<Node<L>> {
