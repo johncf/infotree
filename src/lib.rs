@@ -15,10 +15,11 @@ use mines::boom;
 pub mod cursor;
 pub mod cursor_mut;
 
-pub mod info_ext;
+pub mod ext;
+
 mod info_tree;
 
-pub use info_ext::PathInfo;
+pub use ext::{PathInfo, SubOrd};
 pub use cursor::CursorT;
 pub use cursor_mut::CursorMutT;
 pub use info_tree::InfoTree;

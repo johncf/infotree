@@ -200,6 +200,34 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    /// Moves the cursor to the first leaf node which satisfy the following condition:
+    ///
+    /// `info_sub <= node.info()`
+    ///
+    /// And returns a reference to it. If no such leaf was found, returns `None` and cursor will
+    /// point to the root node.
+    ///
+    /// For this to work correctly, the leaves of the tree must be sorted by the subfield of
+    /// `node.info()` represented by `info_sub` in ascending order, and `L::Info::gather` must
+    /// apply the "max" function on this field.
+    pub fn find<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
+    /// Moves the cursor to the first leaf node which satisfy the following condition:
+    ///
+    /// `path_info <= path_info_sub <= path_info.extend(node.info())`
+    ///
+    /// And returns a reference to it. If no such leaf was found, returns `None` and cursor will
+    /// point to the root node.
+    ///
+    /// For this to work correctly, `P::identity()` value should be the smallest value (possibly
+    /// the "zero" value) in the `P` domain, and `L::Info` should not allow "negative" values so
+    /// that path-info is non-decreasing when `extend`-ed with `L::Info` values.
+    pub fn goto<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
     /// Make the cursor point to the next element at the same height.
     ///
     /// If there is no next element, it returns `None` and cursor resets to root.
@@ -323,6 +351,11 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///
     /// **Not yet implemented.**
     pub fn split_off(&mut self) -> Node<L> {
+        // This can be done with repeated `Node::concat` on both "sides" (`self` and output) with a
+        // complexity of `(log n)^2`. This can possibly also be done with a complexity of `log n`
+        // with `merge_adjacent` called at height where the split was started on both "sides"
+        // (which might stop before reaching root, in which case ascend and call again), but some
+        // of the conditions asserted by that function would need to be relaxed.
         unimplemented!()
     }
 }
