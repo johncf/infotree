@@ -346,16 +346,26 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    /// Merge the current node with `node` on its right and balance. `node` can be of any height.
+    pub fn merge_right(&mut self, _node: Node<L>) {
+        unimplemented!()
+    }
+
+    /// Merge the current node with `node` on its left and balance. `node` can be of any height.
+    pub fn merge_left(&mut self, _node: Node<L>) -> Option<L> {
+        unimplemented!()
+    }
+
     /// Split the tree into two, and return the right part of it. The current node, all leaves
     /// under it, as well as all leaves to the right of it will be included in the returned tree.
     ///
     /// **Not yet implemented.**
     pub fn split_off(&mut self) -> Node<L> {
         // This can be done with repeated `Node::concat` on both "sides" (`self` and output) with a
-        // complexity of `(log n)^2`. This can possibly also be done with a complexity of `log n`
-        // with `merge_adjacent` called at height where the split was started on both "sides"
-        // (which might stop before reaching root, in which case ascend and call again), but some
-        // of the conditions asserted by that function would need to be relaxed.
+        // complexity of `log n`. This can possibly also be done with the same complexity with
+        // `merge_adjacent` called at height where the split was started on both "sides" (which
+        // might stop before reaching root, in which case ascend and call again), but some of the
+        // conditions asserted by that function would need to be relaxed.
         unimplemented!()
     }
 }
