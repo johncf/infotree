@@ -13,7 +13,7 @@ pub struct Cursor<'a, L: Leaf + 'a, P> {
 
 #[derive(Clone)]
 struct CursorStep<'a, L: Leaf + 'a, P> {
-    nodes: &'a NVec<Node<L>>,
+    nodes: &'a [Node<L>],
     idx: usize, // index at which cursor descended
     path_info: P,
 }
@@ -128,7 +128,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    fn descend_raw(&mut self, nodes: &'a NVec<Node<L>>, idx: usize, path_info: P) {
+    fn descend_raw(&mut self, nodes: &'a [Node<L>], idx: usize, path_info: P) {
         // ArrayVec::push(e) returns Some(e) on overflow!
         assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
     }

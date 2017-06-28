@@ -106,7 +106,7 @@ impl<L: Leaf> Node<L> {
     /// Get the child nodes of this node. If this is a leaf node, this will return an empty slice.
     ///
     /// Note that internal nodes always contain at least one child node.
-    pub fn children(&self) -> Option<&NVec<Node<L>>> {
+    pub fn children(&self) -> Option<&[Node<L>]> {
         match *self {
             Node::Internal(ref int) => Some(&*int.nodes),
             Node::Leaf(_) => None,
@@ -399,7 +399,7 @@ pub enum TraverseError {
 }
 
 impl<L: Leaf> Node<L> {
-    pub(crate) fn children_must(&self) -> &NVec<Node<L>> {
+    pub(crate) fn children_must(&self) -> &[Node<L>] {
         match self.children() {
             Some(nodes) => nodes,
             None => unreachable!("buggy children_must call"),
