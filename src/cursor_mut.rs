@@ -1,4 +1,5 @@
 use super::*;
+use node::{LeafMut, insert_maybe_split, balance_maybe_merge};
 
 use std::fmt;
 use std::iter::FromIterator;
@@ -6,9 +7,6 @@ use std::mem;
 
 // Note: The working of `CursorMut` is fundamentally different from `Cursor`. `CursorMut` can
 //       become empty (iff `cur_node` is empty. `cur_node` empty implies `steps` is also empty).
-
-/// A useful type alias for easy initialization of `CursorMut`.
-pub type CursorMutT<L> = CursorMut<L, ()>;
 
 /// A cursor object that can be used to modify internals of `Node` while maintaining balance.
 ///
@@ -526,8 +524,10 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use ::tests::*;
+    use super::CursorMut;
+    use ::test_help::*;
+
+    type CursorMutT<L> = CursorMut<L, ()>;
 
     #[test]
     fn insert() {

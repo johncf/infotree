@@ -5,7 +5,7 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::{CursorMutT, Leaf, InfoTree};
+use infotree::{CursorMut, Leaf};
 use test::Bencher;
 
 use std::collections::LinkedList;
@@ -41,20 +41,11 @@ fn linkedlist_push_pop(b: &mut Bencher) {
 
 #[bench]
 fn cursormut_insert_remove(b: &mut Bencher) {
-    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMutT<_>>();
+    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_, ()>>();
     cm.reset();
     b.iter(|| {
         cm.insert_first(TestLeaf(0));
         cm.remove_first();
-    })
-}
-
-#[bench]
-fn infotree_push_pop(b: &mut Bencher) {
-    let mut tree = (1..TOTAL).map(|e| TestLeaf(e)).collect::<InfoTree<_>>();
-    b.iter(|| {
-        tree.push_front(TestLeaf(0));
-        tree.pop_front();
     })
 }
 

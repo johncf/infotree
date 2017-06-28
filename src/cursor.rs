@@ -1,9 +1,6 @@
 use super::*;
 use std::fmt;
 
-/// A useful type alias for easy initialization of `Cursor`.
-pub type CursorT<'a, L> = Cursor<'a, L, ()>;
-
 /// An object that can be used to traverse a `Node`.
 ///
 /// `Cursor` is very lightweight. All operations are done entirely using stack memory -- no
@@ -223,13 +220,13 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use ::tests::*;
+    use ::{Cursor, Node};
+    use ::test_help::*;
 
     #[test]
     fn leaf_traversal() {
-        let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
-        let mut cursor = CursorT::new(root_of(&tree));
+        let tree: Node<_> = (1..21).map(|i| TestLeaf(i)).collect();
+        let mut cursor = CursorT::new(&tree);
         for i in 1..21 {
             assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
         }
@@ -243,8 +240,8 @@ mod tests {
 
     #[test]
     fn path_extend() {
-        let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
-        let mut cursor = Cursor::<_, usize>::new(root_of(&tree));
+        let tree: Node<_> = (1..21).map(|i| TestLeaf(i)).collect();
+        let mut cursor = Cursor::<_, usize>::new(&tree);
         cursor.descend_first_till(0);
         assert_eq!(*cursor.current().leaf().unwrap(), TestLeaf(1));
         assert_eq!(cursor.path_info(), 0);
