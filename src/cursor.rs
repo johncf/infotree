@@ -1,4 +1,5 @@
-use super::*;
+use ::{Leaf, Node, PathInfo, CVec};
+
 use std::fmt;
 
 /// An object that can be used to traverse a `Node`.

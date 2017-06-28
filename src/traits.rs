@@ -1,6 +1,20 @@
-use super::Info;
-
 use std::cmp::Ordering;
+
+/// The value stored in a leaf node should implement this trait.
+///
+/// Note: If cloning a leaf is expensive, consider wrapping it in `Arc`.
+pub trait Leaf: Clone {
+    type Info: Info;
+
+    fn compute_info(&self) -> Self::Info;
+}
+
+/// Metadata that need to be gathered hierarchically over the tree.
+pub trait Info: Copy {
+    /// Used when gathering info from children to parent nodes. Should probably be commutative and
+    /// associative.
+    fn gather(self, other: Self) -> Self;
+}
 
 pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
     /// Used when traversing down the tree for computing the cumulative info from root.
@@ -28,6 +42,18 @@ pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
 /// priority rules when determining the ordering.
 pub trait SubOrd<T> {
     fn sub_cmp(&self, other: &T) -> Ordering;
+}
+
+// == End of Trait Definitions ==
+
+impl Info for () {
+    #[inline]
+    fn gather(self, _: ()) { }
+}
+
+impl Info for usize {
+    #[inline]
+    fn gather(self, other: usize) -> usize { self + other }
 }
 
 impl<T> PathInfo<T> for () where T: Info {

@@ -1,6 +1,13 @@
-use ::*;
+use ::{Info, Leaf, PathInfo};
+use ::{NVec, RC};
+use ::{MAX_CHILDREN, MIN_CHILDREN};
 
+use mines::boom;
+
+use std::cmp::{self, Ordering};
 use std::iter::FromIterator;
+use std::mem;
+use std::ops::{Deref, DerefMut};
 
 /// The basic building block of a tree.
 ///
@@ -229,7 +236,7 @@ impl<L: Leaf> Node<L> {
         let h2 = node2.height();
 
         match h1.cmp(&h2) {
-            cmp::Ordering::Less => {
+            Ordering::Less => {
                 let mut children2 = node2.into_children_must();
                 let maybe_newnode = {
                     let children2 = RC::make_mut(&mut children2);
@@ -244,7 +251,7 @@ impl<L: Leaf> Node<L> {
                             let mut newchildren = newnode.into_children_must();
                             if {
                                 let newchildren = RC::make_mut(&mut newchildren);
-                                std::mem::swap(newchildren, children2);
+                                mem::swap(newchildren, children2);
                                 balance_maybe_merge(children2, newchildren)
                             } { // merged into children2
                                 None
@@ -256,7 +263,7 @@ impl<L: Leaf> Node<L> {
                 };
                 (Node::from_children(children2), maybe_newnode)
             },
-            cmp::Ordering::Equal => {
+            Ordering::Equal => {
                 if node1.has_min_size() && node2.has_min_size() {
                     (node1, Some(node2))
                 } else {
@@ -269,7 +276,7 @@ impl<L: Leaf> Node<L> {
                     }
                 }
             },
-            cmp::Ordering::Greater => {
+            Ordering::Greater => {
                 let mut children1 = node1.into_children_must();
                 let maybe_newnode = {
                     let len1 = children1.len();
@@ -321,6 +328,16 @@ impl<L: Leaf> FromIterator<L> for Node<L> {
     }
 }
 
+fn balanced_split(total: usize) -> (usize, usize) {
+    debug_assert!(MAX_CHILDREN <= total && total <= 2*MAX_CHILDREN);
+    // Make left heavy. Splitting at midpoint is another option
+    let n_left = cmp::min(total - MIN_CHILDREN, MAX_CHILDREN);
+    let n_right = total - n_left;
+    debug_assert!(MIN_CHILDREN <= n_left && n_left <= MAX_CHILDREN);
+    debug_assert!(MIN_CHILDREN <= n_right && n_right <= MAX_CHILDREN);
+    (n_left, n_right)
+}
+
 // Tries to merge two lists of nodes into one (returns true), otherwise balances the lists so that
 // both of them have at least MIN_CHILDREN nodes (returns false).
 pub(crate) fn balance_maybe_merge<L: Leaf>(
@@ -336,7 +353,7 @@ pub(crate) fn balance_maybe_merge<L: Leaf>(
             let mut tmp_children2 = NVec::new();
             tmp_children2.extend(children1.drain(newlen1..));
             tmp_children2.extend(children2.drain(..));
-            std::mem::swap(children2, &mut tmp_children2);
+            mem::swap(children2, &mut tmp_children2);
         } else {
             let drain2 = len2 - newlen2;
             children1.extend(children2.drain(..drain2));
