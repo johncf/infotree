@@ -8,6 +8,7 @@ pub type CursorT<'a, L> = Cursor<'a, L, ()>;
 ///
 /// `Cursor` is very lightweight. All operations are done entirely using stack memory -- no
 /// heap allocations are made at any point.
+#[derive(Clone)]
 pub struct Cursor<'a, L: Leaf + 'a, P> {
     root: &'a Node<L>,
     steps: CVec<CursorStep<'a, L, P>>,
@@ -36,7 +37,12 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    /// Returns the current node the cursor is pointing to.
+    /// Returns a reference to the root node.
+    pub fn root(&self) -> &'a Node<L> {
+        self.root
+    }
+
+    /// Returns a reference to the current node, where the cursor is at.
     pub fn current(&self) -> &'a Node<L> {
         match self.steps.last() {
             Some(cstep) => &cstep.nodes[cstep.idx],
@@ -44,7 +50,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    /// Returns whether the cursor is currently at the root of the tree.
+    /// Returns whether the cursor is currently at the root.
     pub fn is_root(&self) -> bool {
         self.steps.len() == 0
     }

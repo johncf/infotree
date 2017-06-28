@@ -16,11 +16,13 @@ pub type CursorMutT<L> = CursorMut<L, ()>;
 /// allocations for its own operations, most operations tries to make the current node writable
 /// using `Arc::make_mut`. This could result in a heap allocation if the number of references to
 /// that node is more than one.
+#[derive(Clone)]
 pub struct CursorMut<L: Leaf, P> {
     cur_node: Node<L>,
     steps: CVec<CursorMutStep<L, P>>,
 }
 
+#[derive(Clone)]
 struct CursorMutStep<L: Leaf, P> {
     nodes: RC<NVec<Node<L>>>,
     idx: usize,
@@ -318,6 +320,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     /// Split the tree into two, and return the right part of it. The current node, all leaves
     /// under it, as well as all leaves to the right of it will be included in the returned tree.
+    ///
+    /// **Not yet implemented.**
     pub fn split_off(&mut self) -> Node<L> {
         unimplemented!()
     }
