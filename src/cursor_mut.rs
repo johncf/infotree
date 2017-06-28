@@ -56,10 +56,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         self.take_current()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.current().is_none()
-    }
-
     pub fn current(&self) -> Option<&Node<L>> {
         match self.cur_node {
             Node::Never(_) => None,
@@ -67,12 +63,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    /// Returns a mutable reference to the leaf's value if the current node is a leaf.
-    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
-        match self.cur_node {
-            Node::Never(_) => None,
-            ref mut cur_node => cur_node.leaf_mut(),
-        }
+    pub fn is_empty(&self) -> bool {
+        self.current().is_none()
     }
 
     /// Returns whether the cursor is currently at the root of the tree.
@@ -85,6 +77,14 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// Height of the current node from leaves.
     pub fn height(&self) -> Option<usize> {
         self.current().map(|node| node.height())
+    }
+
+    /// Returns a mutable reference to the leaf's value if the current node is a leaf.
+    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
+        match self.cur_node {
+            Node::Never(_) => None,
+            ref mut cur_node => cur_node.leaf_mut(),
+        }
     }
 
     /// The cumulative info along the path from root to this node. Returns `P::identity()` if the
@@ -116,7 +116,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn position(&self) -> Option<(usize, usize)> {
         self.steps.last().map(|cstep| (cstep.idx, cstep.nodes.len() - cstep.idx - 1))
     }
+}
 
+// navigational methods
+impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn reset(&mut self) {
         while let Some(_) = self.ascend() {}
     }
@@ -293,7 +296,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             }
         }
     }
+}
 
+// structural modifications
+impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// Insert `leaf` at the current position if at the bottom of tree, or insert it as the first
     /// leaf under the current node.
     ///

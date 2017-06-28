@@ -68,7 +68,10 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
             None => P::identity(),
         }
     }
+}
 
+// navigational methods
+impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     pub fn reset(&mut self) {
         self.steps.clear();
     }
