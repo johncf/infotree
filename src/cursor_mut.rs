@@ -136,14 +136,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn descend_left(&mut self, idx: usize) -> Option<&Node<L>> {
-        self.descend_extended(|_, _, i, _| i == idx, false)
-    }
-
-    pub fn descend_right(&mut self, idx: usize) -> Option<&Node<L>> {
-        self.descend_extended(|_, _, _, i| i == idx, true)
-    }
-
     pub fn descend_first_till(&mut self, height: usize) {
         while let Some(h) = self.height() {
             if h > height { self.descend_left(0); }
@@ -158,25 +150,25 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    /// Descend the tree once, on the child for which `f` returns `true`. It internally calls
-    /// `descend_extended` for path info book-keeping.
-    ///
-    /// Returns `None` if `f` returned `false` on all children, or if it was a leaf node.
-    ///
-    /// The arguments to `f` are exactly the same as in [`Node::traverse`].
-    ///
-    /// [`Node::traverse`]: ../enum.Node.html#method.traverse
-    pub fn descend<F>(&mut self, mut f: F, reversed: bool) -> Option<&Node<L>>
-        where F: FnMut(L::Info, usize, usize) -> bool
-    {
-        self.descend_extended(|_, a, i, j| f(a, i, j), reversed)
+    pub fn descend_left(&mut self, idx: usize) -> Option<&Node<L>> {
+        self.descend_by(|_, _, i, _| i == idx, false)
     }
 
-    /// Similar to descend, with the arguments to `f` treated exactly the same as in
-    /// [`Node::path_traverse`].
+    pub fn descend_right(&mut self, idx: usize) -> Option<&Node<L>> {
+        self.descend_by(|_, _, _, i| i == idx, true)
+    }
+
+    /// Descend the tree once, on the child for which `f` returns `true`.
+    ///
+    /// Returns `None` if cursor is empty or is at a leaf node, or if `f` returned `false` on all
+    /// children.
+    ///
+    /// The arguments to `f` are treated exactly the same as in [`Node::path_traverse`].
     ///
     /// Panics if tree depth is greater than 8.
-    pub fn descend_extended<F>(&mut self, f: F, reversed: bool) -> Option<&Node<L>>
+    ///
+    /// [`Node::path_traverse`]: ../enum.Node.html#method.path_traverse
+    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&Node<L>>
         where F: FnMut(P, L::Info, usize, usize) -> bool
     {
         match self.take_current() {

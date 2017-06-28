@@ -80,37 +80,40 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         self.steps.pop().map(|cstep| &cstep.nodes[cstep.idx])
     }
 
+    /// Descend the first child recursively till `height`.
+    pub fn descend_first_till(&mut self, height: usize) {
+        while self.height() > height {
+            self.descend_left(0);
+        }
+    }
+
+    /// Descend the last child recursively till `height`.
+    pub fn descend_last_till(&mut self, height: usize) {
+        while self.height() > height {
+            self.descend_right(0);
+        }
+    }
+
     /// Descend on the `idx`-th child from left. The first child is numbered `0`.
     pub fn descend_left(&mut self, idx: usize) -> Option<&'a Node<L>> {
-        self.descend_extended(|_, _, i, _| i == idx, false)
+        self.descend_by(|_, _, i, _| i == idx, false)
     }
 
     /// Descend on the `idx`-th child from right. The last child is numbered `0`.
     pub fn descend_right(&mut self, idx: usize) -> Option<&'a Node<L>> {
-        self.descend_extended(|_, _, _, i| i == idx, true)
+        self.descend_by(|_, _, _, i| i == idx, true)
     }
 
-    /// Descend the tree once, on the child for which `f` returns `true`. It internally calls
-    /// `descend_extended` for path info book-keeping. (exists for convenience when `P=()`).
+    /// Descend the tree once, on the child for which `f` returns `true`.
     ///
-    /// Returns `None` if `f` returned `false` on all children, or if it was a leaf node.
+    /// Returns `None` if cursor is at a leaf node, or if `f` returned `false` on all children.
     ///
-    /// The arguments to `f` are treated exactly the same as in [`Node::traverse`].
-    ///
-    /// [`Node::traverse`]: ../enum.Node.html#method.traverse
-    pub fn descend<F>(&mut self, mut f: F, reversed: bool) -> Option<&'a Node<L>>
-        where F: FnMut(L::Info, usize, usize) -> bool
-    {
-        self.descend_extended(|_, a, i, j| f(a, i, j), reversed)
-    }
-
-    /// Similar to descend, with the arguments to `f` treated exactly the same as in
-    /// [`Node::path_traverse`].
-    ///
-    /// [`Node::path_traverse`]: ../enum.Node.html#method.path_traverse
+    /// The arguments to `f` are treated exactly the same as in [`Node::path_traverse`].
     ///
     /// Panics if tree depth is greater than 8.
-    pub fn descend_extended<F>(&mut self, f: F, reversed: bool) -> Option<&'a Node<L>>
+    ///
+    /// [`Node::path_traverse`]: ../enum.Node.html#method.path_traverse
+    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&'a Node<L>>
         where F: FnMut(P, L::Info, usize, usize) -> bool
     {
         let cur_node = self.current();
@@ -187,34 +190,32 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn first_leaf_below(&mut self) -> &'a L {
-        while let Some(_) = self.descend_left(0) {}
-        self.current().leaf().unwrap()
-    }
-
-    pub fn last_leaf_below(&mut self) -> &'a L {
-        while let Some(_) = self.descend_right(0) {}
-        self.current().leaf().unwrap()
-    }
-
-    /// If the current node is a leaf, calls `next_node`, otherwise calls `first_leaf_below`.
+    /// If the current node is a leaf, calls `next_node`, otherwise returns the first of the
+    /// descendant leaves.
     ///
     /// Thus at the last leaf of the tree, it returns `None` and cursor resets to root, therefore
     /// calling `next_leaf` again will return the first leaf of the tree.
     pub fn next_leaf(&mut self) -> Option<&'a L> {
         match self.current().leaf() {
-            None => Some(self.first_leaf_below()),
+            None => {
+                self.descend_first_till(0);
+                self.current().leaf()
+            },
             Some(_) => self.next_node().map(|node| node.leaf().unwrap()),
         }
     }
 
-    /// If the current node is a leaf, calls `prev_node`, otherwise calls `last_leaf_below`.
+    /// If the current node is a leaf, calls `prev_node`, otherwise returns the last of the
+    /// descendant leaves.
     ///
     /// Thus at the first leaf of the tree, it returns `None` and cursor resets to root, therefore
     /// calling `prev_leaf` again will return the last leaf of the tree.
     pub fn prev_leaf(&mut self) -> Option<&'a L> {
         match self.current().leaf() {
-            None => Some(self.last_leaf_below()),
+            None => {
+                self.descend_last_till(0);
+                self.current().leaf()
+            },
             Some(_) => self.prev_node().map(|node| node.leaf().unwrap()),
         }
     }
@@ -244,10 +245,12 @@ mod tests {
     fn path_extend() {
         let tree: InfoTree<_> = (1..21).map(|i| TestLeaf(i)).collect();
         let mut cursor = Cursor::<_, usize>::new(root_of(&tree));
-        assert_eq!(*cursor.first_leaf_below(), TestLeaf(1));
+        cursor.descend_first_till(0);
+        assert_eq!(*cursor.current().leaf().unwrap(), TestLeaf(1));
         assert_eq!(cursor.path_info(), 0);
         cursor.reset();
-        assert_eq!(*cursor.last_leaf_below(), TestLeaf(20));
+        cursor.descend_last_till(0);
+        assert_eq!(*cursor.current().leaf().unwrap(), TestLeaf(20));
         assert_eq!(cursor.path_info(), 19*20/2);
     }
 
