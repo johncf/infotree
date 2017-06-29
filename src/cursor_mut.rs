@@ -199,27 +199,78 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///
     /// `info_sub <= node.info()`
     ///
-    /// And returns a reference to it. If no such leaf was found, returns `None` and cursor will
-    /// point to the root node.
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
     ///
-    /// For this to work correctly, the leaves of the tree must be sorted by the subfield of
-    /// `node.info()` represented by `info_sub` in ascending order, and `L::Info::gather` must
-    /// apply the "max" function on this field.
-    pub fn find<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&Node<L>> {
+    /// Conditions for correctness:
+    /// - The leaves of the tree must be sorted by the value represented by `info_sub` inside
+    ///   `node.info()` in ascending order.
+    /// - `L::Info::gather` must apply the "min" function on this field.
+    ///
+    /// See `find_max` for examples.
+    pub fn find_min<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
+    /// Moves the cursor to the last leaf node which satisfy the following condition:
+    ///
+    /// `node.info() <= info_sub`
+    ///
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
+    ///
+    /// Conditions for correctness is the same as `find_min`, except that `L::Info::gather` must
+    /// apply the "max" function on this field, instead of "min".
+    ///
+    /// Note: If exactly one leaf satisfies equality with `info_sub`, then both `find_max` and
+    /// `find_min` will return the same element. Here are some examples:
+    /// ```text
+    /// leaf:     ('c', 2)   ('j', 1)   ('j', 4)   ('v', 2)
+    /// find_min('j') == Some(('j', 1))
+    /// find_max('j') == find_max('k') == Some(('j', 4))
+    /// find_min('k') == find_max('z') == Some(('v', 2))
+    /// find_min('z') == find_max('a') == None
+    /// ```
+    pub fn find_max<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&Node<L>> {
         unimplemented!()
     }
 
     /// Moves the cursor to the first leaf node which satisfy the following condition:
     ///
-    /// `path_info <= path_info_sub <= path_info.extend(node.info())`
+    /// `path_info_sub <= path_info.extend(node.info())`
     ///
-    /// And returns a reference to it. If no such leaf was found, returns `None` and cursor will
-    /// point to the root node.
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
     ///
-    /// For this to work correctly, `P::identity()` value should be the smallest value (possibly
-    /// the "zero" value) in the `P` domain, and `L::Info` should not allow "negative" values so
-    /// that path-info is non-decreasing when `extend`-ed with `L::Info` values.
-    pub fn goto<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&Node<L>> {
+    /// Conditions for correctness:
+    /// - `L::Info` should not contain "negative" values so that path-info is non-decreasing when
+    ///   `extend`-ed with `L::Info` values.
+    ///
+    /// See `goto_max` for examples.
+    pub fn goto_min<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
+    /// Moves the cursor to the last leaf node which satisfy the following condition:
+    ///
+    /// `path_info <= path_info_sub`
+    ///
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
+    ///
+    /// Conditions for correctness is the same as `goto_min`.
+    ///
+    /// Note: Both of these methods can be visualized as follows:
+    /// ```text
+    /// leaf         :     'a'   'b'   'c'   'd'   'e'
+    /// leaf::info() :      1     1     1     1     1
+    /// path_info    :   0     1     2  ^  3  ^  4     5
+    ///                                 ^--------------- goto_min(3) = first of ('c', 'd', 'e')
+    ///      goto_max(3) ---------------------^ = last of ('a', 'b', 'c', 'd')
+    /// ```
+    /// That is, for any `p: PS`, `goto_min(p) <= goto_max(p)`. Below are a few more examples:
+    /// ```text
+    /// goto_min(0) == goto_min(1) == Some('a')
+    /// goto_max(4) == goto_max(5) == goto_max(6) == Some('e')
+    /// goto_min(6) == None
+    /// ```
+    pub fn goto_max<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&Node<L>> {
         unimplemented!()
     }
 
