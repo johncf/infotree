@@ -1,6 +1,6 @@
-use ::{Info, Leaf, PathInfo};
 use ::{NVec, RC};
 use ::{MAX_CHILDREN, MIN_CHILDREN};
+use traits::{Info, Leaf, PathInfo};
 
 use mines::boom;
 
@@ -468,7 +468,7 @@ impl<L: Leaf> Node<L> {
 
 #[cfg(test)]
 mod tests {
-    use ::*;
+    use ::base::Node;
     use ::test_help::*;
 
     #[test]

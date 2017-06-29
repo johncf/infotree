@@ -5,7 +5,9 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::{CursorMut, Leaf};
+use infotree::base::CursorMut;
+use infotree::traits::Leaf;
+
 use test::Bencher;
 
 use std::collections::LinkedList;

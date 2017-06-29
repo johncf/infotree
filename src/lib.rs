@@ -1,6 +1,6 @@
 //! Provides a generic framework for building copy-on-write B-Tree-like structures.
 //!
-//! Both design and implementation are heavily based on [xi-rope].
+//! The design and implementation was inspired by [xi-rope].
 //!
 //! [xi-rope]: https://github.com/google/xi-editor/tree/master/rust/rope
 extern crate arrayvec;
@@ -8,17 +8,19 @@ extern crate mines;
 
 use arrayvec::ArrayVec;
 
-pub mod node;
-pub mod cursor;
-pub mod cursor_mut;
+mod node;
+mod cursor;
+mod cursor_mut;
 
-mod traits;
+pub mod traits;
 
-pub use traits::{Info, Leaf, PathInfo, SubOrd};
-
-pub use node::Node;
-pub use cursor::Cursor;
-pub use cursor_mut::CursorMut;
+pub mod base {
+    pub use node::Node;
+    pub use node::LeafMut;
+    pub use node::TraverseError;
+    pub use cursor::Cursor;
+    pub use cursor_mut::CursorMut;
+}
 
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;

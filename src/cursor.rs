@@ -1,4 +1,6 @@
-use ::{Leaf, Node, PathInfo, CVec};
+use ::CVec;
+use base::Node;
+use traits::{Leaf, PathInfo};
 
 use std::fmt;
 
@@ -6,6 +8,8 @@ use std::fmt;
 ///
 /// `Cursor` is very lightweight. All operations are done entirely using stack memory -- no
 /// heap allocations are made at any point.
+///
+/// Note: `Cursor` takes more than 200B on stack (exact size depends on the size of `P`)
 #[derive(Clone)]
 pub struct Cursor<'a, L: Leaf + 'a, P> {
     root: &'a Node<L>,
@@ -221,7 +225,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
 
 #[cfg(test)]
 mod tests {
-    use ::{Cursor, Node};
+    use ::base::{Cursor, Node};
     use ::test_help::*;
 
     #[test]

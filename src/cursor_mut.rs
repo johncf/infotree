@@ -1,7 +1,8 @@
-use ::{Leaf, Node, PathInfo, SubOrd};
 use ::{CVec, NVec, RC};
 use ::{MAX_CHILDREN, MIN_CHILDREN};
-use node::{LeafMut, insert_maybe_split, balance_maybe_merge};
+use base::{Node, LeafMut};
+use traits::{Leaf, PathInfo, SubOrd};
+use node::{insert_maybe_split, balance_maybe_merge};
 
 use std::fmt;
 use std::iter::FromIterator;
@@ -10,12 +11,14 @@ use std::mem;
 // Note: The working of `CursorMut` is fundamentally different from `Cursor`. `CursorMut` can
 //       become empty (iff `cur_node` is empty. `cur_node` empty implies `steps` is also empty).
 
-/// A cursor object that can be used to modify internals of `Node` while maintaining balance.
+/// A object that can be used to modify internals of `Node` while maintaining balance.
 ///
-/// `CursorMut` is heavier compared to `Cursor`. Even though `CursorMut` does not do any heap
+/// `CursorMut` is heavier compared to `Cursor`. Even though `CursorMut` does not make any heap
 /// allocations for its own operations, most operations tries to make the current node writable
 /// using `Arc::make_mut`. This could result in a heap allocation if the number of references to
 /// that node is more than one.
+///
+/// Note: `CursorMut` takes more than 200B on stack (exact size mainly depends on the size of `P`)
 #[derive(Clone)]
 pub struct CursorMut<L: Leaf, P> {
     cur_node: Node<L>,
