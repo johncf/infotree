@@ -139,18 +139,28 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn descend_first_till(&mut self, height: usize) {
+    // Returns `Some(node)` if the height was correctly reached by descending first (or was already
+    // at that height). Returns `None` if current height is less than `height`, or is empty.
+    pub fn descend_first_till(&mut self, height: usize) -> Option<&Node<L>> {
         while let Some(h) = self.height() {
-            if h > height { self.descend_left(0); }
-            else { break }
+            if h > height + 1 { self.descend_left(0); }
+            else if h == height + 1 { return self.descend_left(0); }
+            else if h == height { return self.current(); }
+            else { return None; }
         }
+        return None;
     }
 
-    pub fn descend_last_till(&mut self, height: usize) {
+    // Returns `Some(node)` if the height was correctly reached by descending first (or was already
+    // at that height). Returns `None` if current height is less than `height`, or is empty.
+    pub fn descend_last_till(&mut self, height: usize) -> Option<&Node<L>> {
         while let Some(h) = self.height() {
-            if h > height { self.descend_right(0); }
-            else { break }
+            if h > height + 1 { self.descend_right(0); }
+            else if h == height + 1 { return self.descend_right(0); }
+            else if h == height { return self.current(); }
+            else { return None; }
         }
+        return None;
     }
 
     pub fn descend_left(&mut self, idx: usize) -> Option<&Node<L>> {
@@ -198,6 +208,26 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    pub fn ascend_till(&mut self, _height: usize) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
+    pub fn left_sibling(&mut self) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
+    pub fn right_sibling(&mut self) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
+    pub fn left_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
+    pub fn right_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
+        unimplemented!()
+    }
+
     /// Moves the cursor to the first leaf node which satisfy the following condition:
     ///
     /// `info_sub <= node.info()`
@@ -210,8 +240,80 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// - `L::Info::gather` must apply the "min" function on this field.
     ///
     /// See `find_max` for examples.
-    pub fn find_min<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&Node<L>> {
-        unimplemented!()
+    pub fn find_min<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&Node<L>> {
+        use std::cmp::Ordering;
+
+        enum FindStatus {
+            HitRoot, // condition was false at root
+            HitTrue(usize), // condition was true at some height (currently at a lower height)
+        }
+
+        let satisfies = |info: L::Info| -> bool {
+            match info_sub.sub_cmp(&info) {
+                Ordering::Less | Ordering::Equal => true,
+                Ordering::Greater => false,
+            }
+        };
+
+        let mut status;
+        // ascend till a well-defined state
+        match self.current().map(|n| satisfies(n.info())) {
+            Some(true) => {
+                loop {
+                    match self.left_sibling_or_pibling().map(|n| satisfies(n.info())) {
+                        Some(true) => (),
+                        Some(false) => break,
+                        None => // condition is satisfied at root
+                            return self.descend_first_till(0), // must unwrap
+                    }
+                }
+                status = FindStatus::HitTrue(self.height().unwrap());
+            },
+            Some(false) => {
+                if self.is_root() {
+                    status = FindStatus::HitRoot;
+                } else {
+                    loop {
+                        match self.right_sibling_or_pibling().map(|n| satisfies(n.info())) {
+                            Some(true) => {
+                                self.left_sibling(); // must unwrap
+                                status = FindStatus::HitTrue(self.height().unwrap());
+                                break;
+                            }
+                            Some(false) => (),
+                            None => {
+                                status = FindStatus::HitRoot;
+                                break;
+                            },
+                        }
+                    }
+                }
+            },
+            None => return None,
+        }
+
+        debug_assert!(!satisfies(self.current().unwrap().info()));
+
+        // descend till leaf
+        loop {
+            match self.descend_right(0).map(|n| satisfies(n.info())) {
+                Some(true) => {
+                    while let Some(true) = self.left_sibling().map(|n| satisfies(n.info())) {}
+                    status = FindStatus::HitTrue(self.height().unwrap());
+                }
+                Some(false) => (),
+                None => break, // hit a leaf node while condition is false
+            }
+        }
+
+        match status {
+            FindStatus::HitRoot => None,
+            FindStatus::HitTrue(height) => {
+                self.ascend_till(height);
+                self.right_sibling(); // must unwrap
+                self.descend_first_till(0) // must unwrap
+            }
+        }
     }
 
     /// Moves the cursor to the last leaf node which satisfy the following condition:
@@ -607,7 +709,6 @@ mod tests {
         }
         cursor_mut.reset();
         for i in 0..128 {
-            cursor_mut.descend_first_till(0);
             assert_eq!(cursor_mut.remove_first(), Some(TestLeaf(i)));
         }
         assert_eq!(cursor_mut.is_empty(), true);
@@ -648,8 +749,7 @@ mod tests {
     fn node_iter() {
         let mut cursor_mut: CursorMutT<_> = (0..128).map(|i| TestLeaf(i)).collect();
         cursor_mut.reset();
-        cursor_mut.descend_first_till(0);
-        assert_eq!(cursor_mut.current().and_then(|n| n.leaf()), Some(&TestLeaf(0)));
+        assert_eq!(cursor_mut.descend_first_till(0).and_then(|n| n.leaf()), Some(&TestLeaf(0)));
         for i in 1..128 {
             assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), Some(&TestLeaf(i)));
         }
