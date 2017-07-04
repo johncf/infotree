@@ -230,6 +230,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                     *idx -= 1;
                     mem::swap(cur_node, nodes.get_mut(*idx).unwrap());
                     debug_assert!(!cur_node.is_never());
+
                     *path_info = path_info.extend_inv(cur_node.info());
                     Some(&*cur_node)
                 } else {
@@ -241,7 +242,27 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     }
 
     pub fn right_sibling(&mut self) -> Option<&Node<L>> {
-        unimplemented!()
+        let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
+        match steps.last_mut() {
+            Some(&mut CursorMutStep { ref mut nodes, ref mut idx, ref mut path_info }) => {
+                debug_assert!(!cur_node.is_never());
+                if *idx + 1 < nodes.len() {
+                    *path_info = path_info.extend(cur_node.info());
+
+                    let nodes = RC::make_mut(nodes);
+                    mem::swap(cur_node, nodes.get_mut(*idx).unwrap());
+                    debug_assert!(cur_node.is_never());
+                    *idx += 1;
+                    mem::swap(cur_node, nodes.get_mut(*idx).unwrap());
+                    debug_assert!(!cur_node.is_never());
+
+                    Some(&*cur_node)
+                } else {
+                    None
+                }
+            }
+            None => None, // at the root
+        }
     }
 
     pub fn left_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
@@ -409,29 +430,20 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn next_node(&mut self) -> Option<&Node<L>> {
         let mut depth_delta = 0;
         loop {
-            match self.steps.pop() {
-                Some(CursorMutStep { mut nodes, mut idx, mut path_info }) => {
-                    debug_assert!(!self.cur_node.is_never());
-                    if idx + 1 < nodes.len() {
-                        { // nodes mut borrow
-                            let nodes = RC::make_mut(&mut nodes);
-                            path_info = path_info.extend(self.cur_node.info());
-                            self.swap_current(nodes, idx);
-                            idx += 1;
-                            self.swap_current(nodes, idx);
-                        }
-                        self.steps.push(CursorMutStep { nodes, idx, path_info });
-                        while depth_delta > 0 {
-                            self.descend_left(0).unwrap();
-                            depth_delta -= 1;
-                        }
-                        return Some(&self.cur_node);
-                    } else {
-                        self.ascend_raw(nodes, idx);
-                        depth_delta += 1;
+            match self.right_sibling() {
+                Some(_) => {
+                    while depth_delta > 0 {
+                        self.descend_left(0).unwrap();
+                        depth_delta -= 1;
+                    }
+                    return Some(&self.cur_node);
+                }
+                None => {
+                    match self.ascend() {
+                        Some(_) => depth_delta += 1,
+                        None => return None,
                     }
                 }
-                None => return None, // at the root
             }
         }
     }
