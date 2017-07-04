@@ -265,12 +265,35 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
+    /// Tries to return the sibling on the left if exists, or ascends the tree until an ancestor
+    /// with a left sibling is found and returns that sibling. (Note: "pibling" as in parent's
+    /// sibling)
     pub fn left_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
-        unimplemented!()
+        loop {
+            match self.left_sibling() {
+                Some(_) => return Some(&self.cur_node),
+                None => {
+                    match self.ascend() {
+                        Some(_) => (),
+                        None => return None,
+                    }
+                }
+            }
+        }
     }
 
     pub fn right_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
-        unimplemented!()
+        loop {
+            match self.right_sibling() {
+                Some(_) => return Some(&self.cur_node),
+                None => {
+                    match self.ascend() {
+                        Some(_) => (),
+                        None => return None,
+                    }
+                }
+            }
+        }
     }
 
     /// Moves the cursor to the first leaf node which satisfy the following condition:
@@ -781,6 +804,11 @@ mod tests {
             assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), Some(&TestLeaf(i)));
         }
         assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), None);
+    }
+
+    #[test]
+    fn find_min() {
+        // TODO
     }
 
     // FIXME need more tests
