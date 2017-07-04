@@ -131,7 +131,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         match self.steps.pop() {
             Some(CursorMutStep { nodes, idx, .. }) => {
                 self.ascend_raw(nodes, idx);
-                self.current()
+                Some(&self.cur_node)
             }
             None => { // cur_node is the root (or empty)
                 None
@@ -143,10 +143,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     // at that height). Returns `None` if current height is less than `height`, or is empty.
     pub fn descend_first_till(&mut self, height: usize) -> Option<&Node<L>> {
         while let Some(h) = self.height() {
-            if h > height + 1 { self.descend_left(0); }
+            if h == height { return self.current(); }
             else if h == height + 1 { return self.descend_left(0); }
-            else if h == height { return self.current(); }
-            else { return None; }
+            else if h > height + 1 { self.descend_left(0); }
+            else { break; }
         }
         return None;
     }
@@ -155,10 +155,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     // at that height). Returns `None` if current height is less than `height`, or is empty.
     pub fn descend_last_till(&mut self, height: usize) -> Option<&Node<L>> {
         while let Some(h) = self.height() {
-            if h > height + 1 { self.descend_right(0); }
+            if h == height { return self.current(); }
             else if h == height + 1 { return self.descend_right(0); }
-            else if h == height { return self.current(); }
-            else { return None; }
+            else if h > height + 1 { self.descend_right(0); }
+            else { break; }
         }
         return None;
     }
@@ -208,12 +208,36 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn ascend_till(&mut self, _height: usize) -> Option<&Node<L>> {
-        unimplemented!()
+    pub fn ascend_till(&mut self, height: usize) -> Option<&Node<L>> {
+        while let Some(h) = self.height() {
+            if h == height { return self.current(); }
+            else if h + 1 == height { return self.ascend(); }
+            else if h + 1 < height { self.ascend(); }
+            else { break; }
+        }
+        return None;
     }
 
     pub fn left_sibling(&mut self) -> Option<&Node<L>> {
-        unimplemented!()
+        let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
+        match steps.last_mut() {
+            Some(&mut CursorMutStep { ref mut nodes, ref mut idx, ref mut path_info }) => {
+                debug_assert!(!cur_node.is_never());
+                if *idx > 0 {
+                    let nodes = RC::make_mut(nodes);
+                    mem::swap(cur_node, nodes.get_mut(*idx).unwrap());
+                    debug_assert!(cur_node.is_never());
+                    *idx -= 1;
+                    mem::swap(cur_node, nodes.get_mut(*idx).unwrap());
+                    debug_assert!(!cur_node.is_never());
+                    *path_info = path_info.extend_inv(cur_node.info());
+                    Some(&*cur_node)
+                } else {
+                    None
+                }
+            }
+            None => None, // at the root
+        }
     }
 
     pub fn right_sibling(&mut self) -> Option<&Node<L>> {
@@ -418,29 +442,20 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn prev_node(&mut self) -> Option<&Node<L>> {
         let mut depth_delta = 0;
         loop {
-            match self.steps.pop() {
-                Some(CursorMutStep { mut nodes, mut idx, mut path_info }) => {
-                    debug_assert!(!self.cur_node.is_never());
-                    if idx > 0 {
-                        { // nodes mut borrow
-                            let nodes = RC::make_mut(&mut nodes);
-                            self.swap_current(nodes, idx);
-                            idx -= 1;
-                            self.swap_current(nodes, idx);
-                            path_info = path_info.extend_inv(self.cur_node.info());
-                        }
-                        self.steps.push(CursorMutStep { nodes, idx, path_info });
-                        while depth_delta > 0 {
-                            self.descend_right(0).unwrap();
-                            depth_delta -= 1;
-                        }
-                        return Some(&self.cur_node);
-                    } else {
-                        self.ascend_raw(nodes, idx);
-                        depth_delta += 1;
+            match self.left_sibling() {
+                Some(_) => {
+                    while depth_delta > 0 {
+                        self.descend_right(0).unwrap();
+                        depth_delta -= 1;
+                    }
+                    return Some(&self.cur_node);
+                }
+                None => {
+                    match self.ascend() {
+                        Some(_) => depth_delta += 1,
+                        None => return None,
                     }
                 }
-                None => return None, // at the root
             }
         }
     }
