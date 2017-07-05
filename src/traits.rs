@@ -41,7 +41,7 @@ pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
 /// The constrain for correctness is that the fields in substructure types should follow the same
 /// priority rules when determining the ordering.
 pub trait SubOrd<T> {
-    fn sub_cmp(&self, other: &T) -> Ordering;
+    fn sub_cmp(&self, rhs: &T) -> Ordering;
 }
 
 // == End of Trait Definitions ==
@@ -80,7 +80,7 @@ impl PathInfo for usize {
 
 // Implement `SubOrd<T>` for all fully ordered `T`.
 impl<T: Ord> SubOrd<T> for T {
-    fn sub_cmp(&self, other: &T) -> Ordering {
-        self.cmp(other)
+    fn sub_cmp(&self, rhs: &T) -> Ordering {
+        self.cmp(rhs)
     }
 }
