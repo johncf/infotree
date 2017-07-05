@@ -808,7 +808,13 @@ mod tests {
 
     #[test]
     fn find_min() {
-        // TODO
+        let mut cursor_mut: CursorMutT<_> = (0..28).map(|i| MinLeaf('a', i))
+                                            .chain((0..36).map(|i| MinLeaf('b', i)))
+                                            .chain((0..20).map(|i| MinLeaf('c', i)))
+                                            .collect();
+        assert_eq!(cursor_mut.find_min(MinChar('a')), Some(&MinLeaf('a', 0)));
+        assert_eq!(cursor_mut.find_min(MinChar('b')), Some(&MinLeaf('b', 0)));
+        assert_eq!(cursor_mut.find_min(MinChar('c')), Some(&MinLeaf('c', 0)));
     }
 
     // FIXME need more tests

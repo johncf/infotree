@@ -1,5 +1,7 @@
 use base::Cursor;
-use traits::Leaf;
+use traits::{Info, Leaf};
+
+use std::cmp;
 
 /// A useful type alias for easy initialization of `Cursor`.
 pub type CursorT<'a, L> = Cursor<'a, L, ()>;
@@ -11,6 +13,25 @@ impl Leaf for TestLeaf {
     type Info = usize;
     fn compute_info(&self) -> usize {
         self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MinLeaf(pub char, pub usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MinChar(pub char);
+
+impl Leaf for MinLeaf {
+    type Info = MinChar;
+    fn compute_info(&self) -> MinChar {
+        MinChar(self.0)
+    }
+}
+
+impl Info for MinChar {
+    fn gather(self, other: Self) -> Self {
+        cmp::min(self, other)
     }
 }
 
