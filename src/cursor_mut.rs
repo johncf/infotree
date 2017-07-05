@@ -308,7 +308,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// - `L::Info::gather` must apply the "min" function on this field.
     ///
     /// See `find_max` for examples.
-    pub fn find_min<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&Node<L>> {
+    pub fn find_min<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&L> {
         use std::cmp::Ordering;
 
         enum FindStatus {
@@ -332,7 +332,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                         Some(true) => (),
                         Some(false) => break,
                         None => // condition is satisfied at root
-                            return self.descend_first_till(0), // must unwrap
+                            return self.descend_first_till(0).and_then(|n| n.leaf()), // must unwrap
                     }
                 }
                 status = FindStatus::HitTrue(self.height().unwrap());
@@ -379,7 +379,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             FindStatus::HitTrue(height) => {
                 self.ascend_till(height);
                 self.right_sibling(); // must unwrap
-                self.descend_first_till(0) // must unwrap
+                self.descend_first_till(0).and_then(|n| n.leaf()) // must unwrap
             }
         }
     }
@@ -402,7 +402,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// find_min('k') == find_max('z') == Some(('v', 2))
     /// find_min('z') == find_max('a') == None
     /// ```
-    pub fn find_max<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&Node<L>> {
+    pub fn find_max<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&L> {
         unimplemented!()
     }
 
@@ -417,7 +417,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///   `extend`-ed with `L::Info` values.
     ///
     /// See `goto_max` for examples.
-    pub fn goto_min<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&Node<L>> {
+    pub fn goto_min<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&L> {
         unimplemented!()
     }
 
@@ -443,7 +443,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// goto_max(4) == goto_max(5) == goto_max(6) == Some('e')
     /// goto_min(6) == None
     /// ```
-    pub fn goto_max<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&Node<L>> {
+    pub fn goto_max<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&L> {
         unimplemented!()
     }
 
