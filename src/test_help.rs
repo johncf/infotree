@@ -35,6 +35,25 @@ impl Info for MinChar {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MaxLeaf(pub char, pub usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MaxChar(pub char);
+
+impl Leaf for MaxLeaf {
+    type Info = MaxChar;
+    fn compute_info(&self) -> MaxChar {
+        MaxChar(self.0)
+    }
+}
+
+impl Info for MaxChar {
+    fn gather(self, other: Self) -> Self {
+        cmp::max(self, other)
+    }
+}
+
 //#[test]
 //fn print() {
 //    use ::std::mem; use ::{CursorMut};

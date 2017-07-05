@@ -121,6 +121,11 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     }
 }
 
+enum FindStatus {
+    HitRoot, // condition was false at root
+    HitTrue, // condition was true at its pibling
+}
+
 // navigational methods
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn reset(&mut self) {
@@ -311,11 +316,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn find_min<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&L> {
         use std::cmp::Ordering;
 
-        enum FindStatus {
-            HitRoot, // condition was false at root
-            HitTrue, // condition was true at its pibling
-        }
-
         let satisfies = |info: L::Info| -> bool {
             match info_sub.sub_cmp(&info) {
                 Ordering::Less | Ordering::Equal => true,
@@ -327,7 +327,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         // ascend till a well-defined state
         match self.current().map(|n| satisfies(n.info())) {
             Some(true) => {
-                loop {
+                loop { // go left or ascend till condition is false
                     match self.left_sibling_or_pibling().map(|n| satisfies(n.info())) {
                         Some(true) => (),
                         Some(false) => break,
@@ -341,10 +341,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                 if self.is_root() {
                     status = FindStatus::HitRoot;
                 } else {
-                    loop {
+                    loop { // go right or ascend till condition is true
                         match self.right_sibling_or_pibling().map(|n| satisfies(n.info())) {
                             Some(true) => {
-                                self.left_sibling(); // must unwrap
+                                self.left_sibling(); // make condition false, must unwrap
                                 status = FindStatus::HitTrue;
                                 break;
                             }
@@ -366,6 +366,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         loop {
             match self.descend_right(0).map(|n| satisfies(n.info())) {
                 Some(true) => {
+                    // find the sibling that don't satisfy the condition
                     while let Some(true) = self.left_sibling().map(|n| satisfies(n.info())) {}
                     status = FindStatus::HitTrue;
                 }
@@ -384,7 +385,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     /// Moves the cursor to the last leaf node which satisfy the following condition:
     ///
-    /// `node.info() <= info_sub`
+    /// `info_sub >= node.info()`
     ///
     /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
     ///
@@ -400,8 +401,74 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// find_min('k') == find_max('z') == Some(('v', 2))
     /// find_min('z') == find_max('a') == None
     /// ```
-    pub fn find_max<IS: SubOrd<L::Info>>(&mut self, _info_sub: IS) -> Option<&L> {
-        unimplemented!()
+    pub fn find_max<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&L> {
+        use std::cmp::Ordering;
+
+        let satisfies = |info: L::Info| -> bool {
+            match info_sub.sub_cmp(&info) {
+                Ordering::Greater | Ordering::Equal => true,
+                Ordering::Less => false,
+            }
+        };
+
+        let mut status;
+        // ascend till a well-defined state
+        match self.current().map(|n| satisfies(n.info())) {
+            Some(true) => {
+                loop { // go right or ascend till condition is false
+                    match self.right_sibling_or_pibling().map(|n| satisfies(n.info())) {
+                        Some(true) => (),
+                        Some(false) => break,
+                        None => // condition is satisfied at root
+                            return self.descend_last_till(0).and_then(|n| n.leaf()), // must unwrap
+                    }
+                }
+                status = FindStatus::HitTrue;
+            },
+            Some(false) => {
+                if self.is_root() {
+                    status = FindStatus::HitRoot;
+                } else {
+                    loop { // go left or ascend till condition is true
+                        match self.left_sibling_or_pibling().map(|n| satisfies(n.info())) {
+                            Some(true) => {
+                                self.right_sibling(); // make condition false, must unwrap
+                                status = FindStatus::HitTrue;
+                                break;
+                            }
+                            Some(false) => (),
+                            None => {
+                                status = FindStatus::HitRoot;
+                                break;
+                            },
+                        }
+                    }
+                }
+            },
+            None => return None,
+        }
+
+        debug_assert!(!satisfies(self.current().unwrap().info()));
+
+        // descend till leaf
+        loop {
+            match self.descend_left(0).map(|n| satisfies(n.info())) {
+                Some(true) => {
+                    // find the sibling that don't satisfy the condition
+                    while let Some(true) = self.right_sibling().map(|n| satisfies(n.info())) {}
+                    status = FindStatus::HitTrue;
+                }
+                Some(false) => (),
+                None => break, // hit a leaf node while condition is false
+            }
+        }
+
+        debug_assert!(!satisfies(self.current().unwrap().info()));
+
+        match status {
+            FindStatus::HitRoot => None,
+            FindStatus::HitTrue => self.prev_node().and_then(|n| n.leaf()), // must unwrap
+        }
     }
 
     /// Moves the cursor to the first leaf node which satisfy the following condition:
@@ -806,13 +873,28 @@ mod tests {
 
     #[test]
     fn find_min() {
-        let mut cursor_mut: CursorMutT<_> = (0..28).map(|i| MinLeaf('a', i))
-                                            .chain((0..36).map(|i| MinLeaf('b', i)))
-                                            .chain((0..20).map(|i| MinLeaf('c', i)))
+        let mut cursor_mut: CursorMutT<_> = (0..28).map(|i| MinLeaf('b', i))
+                                            .chain((0..36).map(|i| MinLeaf('c', i)))
+                                            .chain((0..20).map(|i| MinLeaf('d', i)))
                                             .collect();
-        assert_eq!(cursor_mut.find_min(MinChar('a')), Some(&MinLeaf('a', 0)));
+        assert_eq!(cursor_mut.find_min(MinChar('a')), Some(&MinLeaf('b', 0)));
         assert_eq!(cursor_mut.find_min(MinChar('b')), Some(&MinLeaf('b', 0)));
         assert_eq!(cursor_mut.find_min(MinChar('c')), Some(&MinLeaf('c', 0)));
+        assert_eq!(cursor_mut.find_min(MinChar('d')), Some(&MinLeaf('d', 0)));
+        assert_eq!(cursor_mut.find_min(MinChar('e')), None);
+    }
+
+    #[test]
+    fn find_max() {
+        let mut cursor_mut: CursorMutT<_> = (0..28).map(|i| MaxLeaf('b', i))
+                                            .chain((0..36).map(|i| MaxLeaf('c', i)))
+                                            .chain((0..20).map(|i| MaxLeaf('d', i)))
+                                            .collect();
+        assert_eq!(cursor_mut.find_max(MaxChar('a')), None);
+        assert_eq!(cursor_mut.find_max(MaxChar('b')), Some(&MaxLeaf('b', 27)));
+        assert_eq!(cursor_mut.find_max(MaxChar('c')), Some(&MaxLeaf('c', 35)));
+        assert_eq!(cursor_mut.find_max(MaxChar('d')), Some(&MaxLeaf('d', 19)));
+        assert_eq!(cursor_mut.find_max(MaxChar('e')), Some(&MaxLeaf('d', 19)));
     }
 
     // FIXME need more tests
