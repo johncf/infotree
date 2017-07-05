@@ -313,7 +313,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         enum FindStatus {
             HitRoot, // condition was false at root
-            HitTrue(usize), // condition was true at some height (currently at a lower height)
+            HitTrue, // condition was true at its pibling
         }
 
         let satisfies = |info: L::Info| -> bool {
@@ -335,7 +335,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                             return self.descend_first_till(0).and_then(|n| n.leaf()), // must unwrap
                     }
                 }
-                status = FindStatus::HitTrue(self.height().unwrap());
+                status = FindStatus::HitTrue;
             },
             Some(false) => {
                 if self.is_root() {
@@ -345,7 +345,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                         match self.right_sibling_or_pibling().map(|n| satisfies(n.info())) {
                             Some(true) => {
                                 self.left_sibling(); // must unwrap
-                                status = FindStatus::HitTrue(self.height().unwrap());
+                                status = FindStatus::HitTrue;
                                 break;
                             }
                             Some(false) => (),
@@ -367,20 +367,18 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             match self.descend_right(0).map(|n| satisfies(n.info())) {
                 Some(true) => {
                     while let Some(true) = self.left_sibling().map(|n| satisfies(n.info())) {}
-                    status = FindStatus::HitTrue(self.height().unwrap());
+                    status = FindStatus::HitTrue;
                 }
                 Some(false) => (),
                 None => break, // hit a leaf node while condition is false
             }
         }
 
+        debug_assert!(!satisfies(self.current().unwrap().info()));
+
         match status {
             FindStatus::HitRoot => None,
-            FindStatus::HitTrue(height) => {
-                self.ascend_till(height);
-                self.right_sibling(); // must unwrap
-                self.descend_first_till(0).and_then(|n| n.leaf()) // must unwrap
-            }
+            FindStatus::HitTrue => self.next_node().and_then(|n| n.leaf()), // must unwrap
         }
     }
 
