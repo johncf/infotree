@@ -1,5 +1,5 @@
 use base::Cursor;
-use traits::{Info, Leaf};
+use traits::{Info, Leaf, SubOrd};
 
 use std::cmp;
 
@@ -17,40 +17,45 @@ impl Leaf for TestLeaf {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MinLeaf(pub char, pub usize);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MinChar(pub char);
-
-impl Leaf for MinLeaf {
-    type Info = MinChar;
-    fn compute_info(&self) -> MinChar {
-        MinChar(self.0)
-    }
-}
-
-impl Info for MinChar {
-    fn gather(self, other: Self) -> Self {
-        cmp::min(self, other)
-    }
-}
+pub struct SetLeaf(pub char, pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MaxLeaf(pub char, pub usize);
+pub struct SetInfo {
+    pub min: char,
+    pub max: char,
+}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MinChar(pub char);
 pub struct MaxChar(pub char);
 
-impl Leaf for MaxLeaf {
-    type Info = MaxChar;
-    fn compute_info(&self) -> MaxChar {
-        MaxChar(self.0)
+impl Leaf for SetLeaf {
+    type Info = SetInfo;
+    fn compute_info(&self) -> SetInfo {
+        SetInfo {
+            min: self.0,
+            max: self.0,
+        }
     }
 }
 
-impl Info for MaxChar {
+impl Info for SetInfo {
     fn gather(self, other: Self) -> Self {
-        cmp::max(self, other)
+        SetInfo {
+            min: cmp::min(self.min, other.min),
+            max: cmp::max(self.max, other.max),
+        }
+    }
+}
+
+impl SubOrd<SetInfo> for MinChar {
+    fn sub_cmp(&self, rhs: &SetInfo) -> cmp::Ordering {
+        self.0.cmp(&rhs.min)
+    }
+}
+
+impl SubOrd<SetInfo> for MaxChar {
+    fn sub_cmp(&self, rhs: &SetInfo) -> cmp::Ordering {
+        self.0.cmp(&rhs.max)
     }
 }
 
