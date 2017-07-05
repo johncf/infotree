@@ -795,6 +795,81 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
     }
 }
 
+impl<L, P> IntoIterator for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
+    type Item = L;
+    type IntoIter = IntoIter<L, P>;
+
+    fn into_iter(self) -> IntoIter<L, P> {
+        IntoIter {
+            inner: self,
+            state: IterState::Init,
+        }
+    }
+}
+
+pub struct IntoIter<L: Leaf, P> {
+    inner: CursorMut<L, P>,
+    state: IterState,
+}
+
+#[derive(Clone, Copy)]
+enum IterState {
+    Init,
+    Proc(usize),
+    Done,
+}
+
+impl<L, P> Iterator for IntoIter<L, P> where L: Leaf, P: PathInfo<L::Info> {
+    type Item = L;
+
+    fn next(&mut self) -> Option<L> {
+        let mut ret = Node::never();
+        let index = match self.state {
+            IterState::Init => {
+                match self.inner.height() {
+                    None => {
+                        self.state = IterState::Done;
+                        return None;
+                    }
+                    Some(0) => {
+                        mem::swap(&mut self.inner.cur_node, &mut ret);
+                        self.state = IterState::Done;
+                        return ret.into_leaf().ok();
+                    }
+                    Some(_) => {
+                        self.inner.descend_first_till(1);
+                        self.state = IterState::Proc(0);
+                        0
+                    }
+                }
+            }
+            IterState::Done => return None,
+            IterState::Proc(n) => n,
+        };
+
+        let children_len = self.inner.cur_node.children_must().len();
+        if index < children_len {
+            self.state = IterState::Proc(index + 1);
+            let children_mut = self.inner.cur_node.children_mut_must();
+            mem::swap(&mut children_mut[index], &mut ret);
+            ret.into_leaf().ok()
+        } else {
+            match self.inner.next_node() {
+                Some(_) => {
+                    self.state = IterState::Proc(1);
+                    let children_mut = self.inner.cur_node.children_mut_must();
+                    mem::swap(&mut children_mut[0], &mut ret);
+                    ret.into_leaf().ok()
+                }
+                None => {
+                    self.state = IterState::Done;
+                    None
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::CursorMut;
