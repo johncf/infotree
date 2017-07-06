@@ -571,29 +571,55 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// `path_info` will not decrease (or `extend_inv`). The user should ensure that the cursor is
     /// at the intended location after this.
     pub fn insert_leaf(&mut self, leaf: L, after: bool) {
-        if after {
-            self.descend_last_till(0);
-        } else {
-            self.descend_first_till(0);
-        }
-        self.insert_raw(Node::from_leaf(leaf), after);
+        self.insert(Node::from_leaf(leaf), after);
     }
 
     /// Insert `node` before or after the current node and rebalance. `node` can be of any height.
-    pub fn insert(&mut self, node: Node<L>, after: bool) {
+    pub fn insert(&mut self, newnode: Node<L>, after: bool) {
         match self.height() {
-            Some(h) => {
-                if h == node.height() {
-                    return self.insert_raw(node, after);
+            Some(h) if h >= newnode.height() => {
+                if after {
+                    self.descend_last_till(newnode.height());
                 } else {
-                    unimplemented!()
+                    self.descend_first_till(newnode.height());
                 }
+                return self.insert_raw(newnode, after);
             }
             None => {
-                self.cur_node = node;
+                self.cur_node = newnode;
                 return;
             }
+            _ => (),
         }
+
+        let mut current = self.take_current().unwrap();
+        current = if after {
+            Node::concat(current, newnode)
+        } else {
+            Node::concat(newnode, current)
+        };
+
+        // TODO investigate possible performance tweaks
+        while let Some(CursorMutStep { mut nodes, idx, path_info }) = self.steps.pop() {
+            if nodes[(idx + 1) % nodes.len()].height() == current.height() {
+                self.steps.push(CursorMutStep { nodes, idx, path_info });
+                break;
+            }
+
+            let nodes = RC::make_mut(&mut nodes);
+            let len = nodes.len();
+
+            if idx + 1 < len {
+                let right = Node::from_children(RC::new(nodes.drain(idx+1..).collect()));
+                current = Node::concat(current, right);
+            }
+
+            if idx > 0 {
+                let left = Node::from_children(RC::new(nodes.drain(0..idx).collect()));
+                current = Node::concat(left, current);
+            }
+        }
+        self.cur_node = current;
     }
 
     /// Remove the first leaf under the current node.
@@ -826,6 +852,7 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
 #[cfg(test)]
 mod tests {
     use super::CursorMut;
+    use ::base::Node;
     use ::test_help::*;
 
     type CursorMutT<L> = CursorMut<L, ()>;
@@ -901,7 +928,8 @@ mod tests {
 
     #[test]
     fn find_min_max() {
-        let (l1, l2, l3) = (rand_usize(32)+8, rand_usize(32)+8, rand_usize(32)+8);
+        let rand = || rand_usize(256) + 4;
+        let (l1, l2, l3) = (rand(), rand(), rand());
         println!("lengths: {:?}", (l1, l2, l3));
 
         let mut cursor_mut: CursorMutT<_> =        (0..l1).map(|i| SetLeaf('b', i))
@@ -955,6 +983,28 @@ mod tests {
         println!("heights, orig: {}, left: {}, right: {}", orig_ht, left_ht, right_ht);
         assert!((orig_ht == left_ht || orig_ht == right_ht) &&
                 (orig_ht >= left_ht && orig_ht >= right_ht));
+    }
+
+    #[test]
+    fn general_insert() {
+        let rand = || rand_usize(256) + 4;
+        let (l1, l2, l3) = (rand(), rand(), rand());
+        println!("lengths: {:?}", (l1, l2, l3));
+        let mut cursor_mut: CursorMutT<_> =        (0..l1).map(|i| SetLeaf('a', i))
+                                            .chain((0..l3).map(|i| SetLeaf('a', l1 + l2 + i)))
+                                            .collect();
+        cursor_mut.reset();
+
+        cursor_mut.find_min(MinLeaf(SetLeaf('a', l1))).unwrap();
+
+        let node: Node<_> = (0..l2).map(|i| SetLeaf('a', l1 + i)).collect();
+        cursor_mut.insert(node, false);
+        cursor_mut.reset();
+
+        let mut cursor = CursorT::new(&cursor_mut.current().unwrap());
+        for i in 0..l1+l2+l3 {
+            assert_eq!(cursor.next_leaf(), Some(&SetLeaf('a', i)));
+        }
     }
 
     // FIXME need more tests (create verify_balanced function?)
