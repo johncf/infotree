@@ -50,4 +50,7 @@ const CURSOR_MAX_HT: usize = 8;
 type CVec<T> = ArrayVec<[T; CURSOR_MAX_HT]>;
 
 #[cfg(test)]
+extern crate rand;
+
+#[cfg(test)]
 mod test_help;

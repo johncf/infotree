@@ -628,14 +628,36 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// Split the tree into two, and return the right part of it. The current node, all leaves
     /// under it, as well as all leaves to the right of it will be included in the returned tree.
     ///
-    /// **Not yet implemented.**
-    pub fn split_off(&mut self) -> Node<L> {
-        // This can be done with repeated `Node::concat` on both "sides" (`self` and output) with a
-        // complexity of `log n`. This can possibly also be done with the same complexity with
-        // `merge_adjacent` called at height where the split was started on both "sides" (which
-        // might stop before reaching root, in which case ascend and call again), but some of the
-        // conditions asserted by that function would need to be relaxed.
-        unimplemented!()
+    /// Returns `None` if the cursor was empty.
+    ///
+    /// Time: O(log n)
+    pub fn split_off(&mut self) -> Option<Node<L>> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let mut this = Node::never();
+        let mut ret = self.take_current().unwrap();
+        while let Some(CursorMutStep { mut nodes, idx, .. }) = self.steps.pop() {
+            { // mutate nodes
+                let nodes = RC::make_mut(&mut nodes);
+                let right_nodes: NVec<_> = nodes.drain(idx + 1 ..).collect();
+                if right_nodes.len() > 0 {
+                    ret = Node::concat(ret, Node::from_children(RC::new(right_nodes)));
+                }
+                nodes.pop(); // pop the never node at idx
+            }
+            if nodes.len() > 0 {
+                let left_node = Node::from_children(nodes);
+                this = match this {
+                    Node::Never(_) => left_node,
+                    _ => Node::concat(left_node, this),
+                };
+            }
+        }
+
+        self.cur_node = this;
+        Some(ret)
     }
 }
 
@@ -874,10 +896,14 @@ mod tests {
 
     #[test]
     fn find_min_max() {
-        let mut cursor_mut: CursorMutT<_> =        (0..28).map(|i| SetLeaf('b', i))
-                                            .chain((0..36).map(|i| SetLeaf('c', i)))
-                                            .chain((0..20).map(|i| SetLeaf('d', i)))
+        let (l1, l2, l3) = (rand_usize(32)+8, rand_usize(32)+8, rand_usize(32)+8);
+        println!("lengths: {:?}", (l1, l2, l3));
+
+        let mut cursor_mut: CursorMutT<_> =        (0..l1).map(|i| SetLeaf('b', i))
+                                            .chain((0..l2).map(|i| SetLeaf('c', i)))
+                                            .chain((0..l3).map(|i| SetLeaf('d', i)))
                                             .collect();
+
         assert_eq!(cursor_mut.find_min(MinChar('a')), Some(&SetLeaf('b', 0)));
         assert_eq!(cursor_mut.find_min(MinChar('b')), Some(&SetLeaf('b', 0)));
         assert_eq!(cursor_mut.find_min(MinChar('c')), Some(&SetLeaf('c', 0)));
@@ -885,15 +911,46 @@ mod tests {
         assert_eq!(cursor_mut.find_min(MinChar('e')), None);
 
         assert_eq!(cursor_mut.find_max(MaxChar('a')), None);
-        assert_eq!(cursor_mut.find_max(MaxChar('b')), Some(&SetLeaf('b', 27)));
-        assert_eq!(cursor_mut.find_max(MaxChar('c')), Some(&SetLeaf('c', 35)));
-        assert_eq!(cursor_mut.find_max(MaxChar('d')), Some(&SetLeaf('d', 19)));
-        assert_eq!(cursor_mut.find_max(MaxChar('e')), Some(&SetLeaf('d', 19)));
+        assert_eq!(cursor_mut.find_max(MaxChar('b')), Some(&SetLeaf('b', l1-1)));
+        assert_eq!(cursor_mut.find_max(MaxChar('c')), Some(&SetLeaf('c', l2-1)));
+        assert_eq!(cursor_mut.find_max(MaxChar('d')), Some(&SetLeaf('d', l3-1)));
+        assert_eq!(cursor_mut.find_max(MaxChar('e')), Some(&SetLeaf('d', l3-1)));
 
-        let leaf = SetLeaf('b', 14);
+        let leaf = SetLeaf('b', rand_usize(8));
         assert_eq!(cursor_mut.find_min(MinLeaf(leaf)), Some(&leaf));
         assert_eq!(cursor_mut.find_max(MaxLeaf(leaf)), Some(&leaf));
     }
 
-    // FIXME need more tests
+    #[test]
+    fn split_off() {
+        let total = rand_usize(2048) + 1;
+        let split_at = rand_usize(total);
+        println!("total: {}, split_at: {}", total, split_at);
+
+        let mut cursor_mut: CursorMutT<_> = (0..total).map(|i| SetLeaf('a', i)).collect();
+        cursor_mut.reset();
+
+        let orig_ht = cursor_mut.height().unwrap();
+
+        cursor_mut.find_min(MinLeaf(SetLeaf('a', split_at))).unwrap();
+
+        let right = cursor_mut.split_off().unwrap();
+        let mut cursor = CursorT::new(&right);
+        for i in split_at..total {
+            assert_eq!(cursor.next_leaf(), Some(&SetLeaf('a', i)));
+        }
+
+        let left = cursor_mut.into_root().unwrap();
+        let mut cursor = CursorT::new(&left);
+        for i in 0..split_at {
+            assert_eq!(cursor.next_leaf(), Some(&SetLeaf('a', i)));
+        }
+
+        let (left_ht, right_ht) = (left.height(), right.height());
+        println!("heights, orig: {}, left: {}, right: {}", orig_ht, left_ht, right_ht);
+        assert!((orig_ht == left_ht || orig_ht == right_ht) &&
+                (orig_ht >= left_ht && orig_ht >= right_ht));
+    }
+
+    // FIXME need more tests (create verify_balanced function?)
 }

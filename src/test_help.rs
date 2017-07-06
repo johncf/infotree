@@ -3,6 +3,10 @@ use traits::{Info, Leaf, SubOrd};
 
 use std::cmp;
 
+pub fn rand_usize(max: usize) -> usize {
+    ::rand::random::<usize>() % max
+}
+
 /// A useful type alias for easy initialization of `Cursor`.
 pub type CursorT<'a, L> = Cursor<'a, L, ()>;
 
