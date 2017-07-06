@@ -126,7 +126,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         };
         match res {
             Ok((index, path_info, child)) => {
-                self.descend_raw(cur_node.children_must(), index, path_info);
+                self.descend_raw(cur_node.children(), index, path_info);
                 Some(child)
             }
             Err(_) => None,

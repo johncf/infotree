@@ -693,7 +693,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
                 idx -= 1;
             }
             self.swap_current(RC::make_mut(&mut nodes), idx);
-            debug_assert!(self.cur_node.children().map_or(true, |c| c.len() >= MIN_CHILDREN));
+            debug_assert!(self.cur_node.children().len() == 0 ||
+                          self.cur_node.children().len() >= MIN_CHILDREN);
             path_info = path_info.extend_inv(self.cur_node.info());
             self.steps.push(CursorMutStep { nodes, idx, path_info });
         } else { // steps_len > 0
@@ -706,7 +707,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     // Merge the current node with an adjacent sibling to make it balanced.
     fn merge_adjacent(&mut self) {
         debug_assert!(!self.cur_node.is_never());
-        debug_assert_eq!(self.cur_node.children().unwrap().len(), MIN_CHILDREN - 1);
+        debug_assert_eq!(self.cur_node.children().len(), MIN_CHILDREN - 1);
         let CursorMutStep { mut nodes, mut idx, mut path_info } = self.steps.pop().unwrap();
         if nodes.len() == 1 { // cur_node is the only child
             debug_assert!(self.steps.len() == 0); // the parent must be root
