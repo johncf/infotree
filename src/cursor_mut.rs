@@ -563,28 +563,41 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
 // structural modifications
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
-    /// Insert `leaf` at the current position if at the bottom of tree, or insert it as the first
-    /// leaf under the current node.
+    /// Insert `leaf` before or after the current node. If currently not at a leaf node, the cursor
+    /// first descends to a leaf node (first leaf node if `after == false`, or last leaf node), and
+    /// inserts it before or after it.
     ///
     /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
     /// `path_info` will not decrease (or `extend_inv`). The user should ensure that the cursor is
     /// at the intended location after this.
-    pub fn insert_first(&mut self, leaf: L) {
-        self.descend_first_till(0);
-        self.insert_raw(Node::from_leaf(leaf), false);
+    pub fn insert_leaf(&mut self, leaf: L, after: bool) {
+        if after {
+            self.descend_last_till(0);
+        } else {
+            self.descend_first_till(0);
+        }
+        self.insert_raw(Node::from_leaf(leaf), after);
     }
 
-    /// Same as `insert_first` but insert after the current node if at the bottom of tree, or
-    /// insert it as the last leaf under the current node.
-    ///
-    /// The cursor behavior is the same as `insert_first`.
-    pub fn insert_last(&mut self, leaf: L) {
-        self.descend_last_till(0);
-        self.insert_raw(Node::from_leaf(leaf), true);
+    /// Insert `node` before or after the current node and rebalance. `node` can be of any height.
+    pub fn insert(&mut self, node: Node<L>, after: bool) {
+        match self.height() {
+            Some(h) => {
+                if h == node.height() {
+                    return self.insert_raw(node, after);
+                } else {
+                    unimplemented!()
+                }
+            }
+            None => {
+                self.cur_node = node;
+                return;
+            }
+        }
     }
 
     /// Remove the first leaf under the current node.
-    pub fn remove_first(&mut self) -> Option<L> {
+    pub fn remove_leaf(&mut self) -> Option<L> {
         self.descend_first_till(0);
         self.remove_node().and_then(|n| n.into_leaf().ok())
     }
@@ -615,16 +628,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    /// Merge the current node with `node` on its right and balance. `node` can be of any height.
-    pub fn merge_right(&mut self, _node: Node<L>) {
-        unimplemented!()
-    }
-
-    /// Merge the current node with `node` on its left and balance. `node` can be of any height.
-    pub fn merge_left(&mut self, _node: Node<L>) -> Option<L> {
-        unimplemented!()
-    }
-
     /// Split the tree into two, and return the right part of it. The current node, all leaves
     /// under it, as well as all leaves to the right of it will be included in the returned tree.
     ///
@@ -638,6 +641,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         let mut this = Node::never();
         let mut ret = self.take_current().unwrap();
+        // Note on time complexity: Even though time complexity of concat is O(log n), the heights
+        // of nodes being concated differ only by 1 (amortized).
         while let Some(CursorMutStep { mut nodes, idx, .. }) = self.steps.pop() {
             { // mutate nodes
                 let nodes = RC::make_mut(&mut nodes);
@@ -829,7 +834,7 @@ mod tests {
     fn insert() {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..128 {
-            cursor_mut.insert_last(TestLeaf(i));
+            cursor_mut.insert_leaf(TestLeaf(i), true);
         }
         let root = cursor_mut.into_root().unwrap();
         let mut cursor = CursorT::new(&root);
@@ -843,11 +848,11 @@ mod tests {
     fn delete() {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..128 {
-            cursor_mut.insert_last(TestLeaf(i));
+            cursor_mut.insert_leaf(TestLeaf(i), true);
         }
         cursor_mut.reset();
         for i in 0..128 {
-            assert_eq!(cursor_mut.remove_first(), Some(TestLeaf(i)));
+            assert_eq!(cursor_mut.remove_leaf(), Some(TestLeaf(i)));
         }
         assert_eq!(cursor_mut.is_empty(), true);
     }
@@ -866,7 +871,7 @@ mod tests {
     #[test]
     fn root_balance() {
         let mut cursor_mut: CursorMutT<_> = (0..2).map(|i| TestLeaf(i)).collect();
-        cursor_mut.remove_first();
+        cursor_mut.remove_leaf();
         cursor_mut.reset();
         assert_eq!(cursor_mut.height(), Some(1)); // allow root with single leaf child
 
@@ -877,8 +882,8 @@ mod tests {
         cursor_mut.remove_node(); // now root has only one child
         cursor_mut.reset();
         assert_eq!(cursor_mut.height(), Some(2));
-        cursor_mut.remove_first();
-        cursor_mut.remove_first();
+        cursor_mut.remove_leaf();
+        cursor_mut.remove_leaf();
         cursor_mut.reset();
         assert_eq!(cursor_mut.height(), Some(1));
     }

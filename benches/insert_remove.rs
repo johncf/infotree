@@ -46,8 +46,8 @@ fn cursormut_insert_remove(b: &mut Bencher) {
     let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_, ()>>();
     cm.reset();
     b.iter(|| {
-        cm.insert_first(TestLeaf(0));
-        cm.remove_first();
+        cm.insert_leaf(TestLeaf(0), false);
+        cm.remove_leaf();
     })
 }
 
