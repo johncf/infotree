@@ -873,8 +873,8 @@ mod tests {
     }
 
     #[test]
-    fn find_min() {
-        let mut cursor_mut: CursorMutT<_> = (0..28).map(|i| SetLeaf('b', i))
+    fn find_min_max() {
+        let mut cursor_mut: CursorMutT<_> =        (0..28).map(|i| SetLeaf('b', i))
                                             .chain((0..36).map(|i| SetLeaf('c', i)))
                                             .chain((0..20).map(|i| SetLeaf('d', i)))
                                             .collect();
@@ -883,19 +883,16 @@ mod tests {
         assert_eq!(cursor_mut.find_min(MinChar('c')), Some(&SetLeaf('c', 0)));
         assert_eq!(cursor_mut.find_min(MinChar('d')), Some(&SetLeaf('d', 0)));
         assert_eq!(cursor_mut.find_min(MinChar('e')), None);
-    }
 
-    #[test]
-    fn find_max() {
-        let mut cursor_mut: CursorMutT<_> = (0..28).map(|i| SetLeaf('b', i))
-                                            .chain((0..36).map(|i| SetLeaf('c', i)))
-                                            .chain((0..20).map(|i| SetLeaf('d', i)))
-                                            .collect();
         assert_eq!(cursor_mut.find_max(MaxChar('a')), None);
         assert_eq!(cursor_mut.find_max(MaxChar('b')), Some(&SetLeaf('b', 27)));
         assert_eq!(cursor_mut.find_max(MaxChar('c')), Some(&SetLeaf('c', 35)));
         assert_eq!(cursor_mut.find_max(MaxChar('d')), Some(&SetLeaf('d', 19)));
         assert_eq!(cursor_mut.find_max(MaxChar('e')), Some(&SetLeaf('d', 19)));
+
+        let leaf = SetLeaf('b', 14);
+        assert_eq!(cursor_mut.find_min(MinLeaf(leaf)), Some(&leaf));
+        assert_eq!(cursor_mut.find_max(MaxLeaf(leaf)), Some(&leaf));
     }
 
     // FIXME need more tests
