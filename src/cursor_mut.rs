@@ -322,34 +322,18 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         // ascend till a well-defined state
         match self.current().map(|n| satisfies(n.info())) {
             Some(true) => {
-                loop { // go left or ascend till condition is false
-                    match self.left_sibling_or_pibling().map(|n| satisfies(n.info())) {
-                        Some(true) => (),
-                        Some(false) => break,
-                        None => // condition is satisfied at root
-                            return self.descend_first_till(0).and_then(|n| n.leaf()), // must unwrap
-                    }
+                if !self.left_ascend_till(|_, info| !satisfies(info)) {
+                    // condition is satisfied at root
+                    return self.descend_first_till(0).and_then(|n| n.leaf()); // must unwrap
                 }
                 status = FindStatus::HitTrue;
             },
             Some(false) => {
-                if self.is_root() {
-                    status = FindStatus::HitRoot;
+                if self.right_ascend_till(|_, info| satisfies(info)) {
+                    self.left_sibling(); // make condition false, must unwrap
+                    status = FindStatus::HitTrue;
                 } else {
-                    loop { // go right or ascend till condition is true
-                        match self.right_sibling_or_pibling().map(|n| satisfies(n.info())) {
-                            Some(true) => {
-                                self.left_sibling(); // make condition false, must unwrap
-                                status = FindStatus::HitTrue;
-                                break;
-                            }
-                            Some(false) => (),
-                            None => {
-                                status = FindStatus::HitRoot;
-                                break;
-                            },
-                        }
-                    }
+                    status = FindStatus::HitRoot;
                 }
             },
             None => return None,
@@ -410,34 +394,18 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         // ascend till a well-defined state
         match self.current().map(|n| satisfies(n.info())) {
             Some(true) => {
-                loop { // go right or ascend till condition is false
-                    match self.right_sibling_or_pibling().map(|n| satisfies(n.info())) {
-                        Some(true) => (),
-                        Some(false) => break,
-                        None => // condition is satisfied at root
-                            return self.descend_last_till(0).and_then(|n| n.leaf()), // must unwrap
-                    }
+                if !self.right_ascend_till(|_, info| !satisfies(info)) {
+                    // condition is satisfied at root
+                    return self.descend_last_till(0).and_then(|n| n.leaf()); // must unwrap
                 }
                 status = FindStatus::HitTrue;
             },
             Some(false) => {
-                if self.is_root() {
-                    status = FindStatus::HitRoot;
+                if self.left_ascend_till(|_, info| satisfies(info)) {
+                    self.right_sibling(); // make condition false, must unwrap
+                    status = FindStatus::HitTrue;
                 } else {
-                    loop { // go left or ascend till condition is true
-                        match self.left_sibling_or_pibling().map(|n| satisfies(n.info())) {
-                            Some(true) => {
-                                self.right_sibling(); // make condition false, must unwrap
-                                status = FindStatus::HitTrue;
-                                break;
-                            }
-                            Some(false) => (),
-                            None => {
-                                status = FindStatus::HitRoot;
-                                break;
-                            },
-                        }
-                    }
+                    status = FindStatus::HitRoot;
                 }
             },
             None => return None,
@@ -688,6 +656,36 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 }
 
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
+    // Calls `left_sibling_or_pibling` until `predicate` is `true`. Returns `false` if root was
+    // reached and `predicate` is still `false`.
+    fn left_ascend_till<F>(&mut self, predicate: F) -> bool
+        where F: Fn(P, L::Info) -> bool
+    {
+        loop {
+            let path_info = self.path_info();
+            match self.left_sibling_or_pibling().map(|n| predicate(path_info, n.info())) {
+                Some(true) => return true,
+                Some(false) => (),
+                None => return false,
+            }
+        }
+    }
+
+    // Calls `right_sibling_or_pibling` until `predicate` is `true`. Returns `false` if root was
+    // reached and `predicate` is still `false`.
+    fn right_ascend_till<F>(&mut self, predicate: F) -> bool
+        where F: Fn(P, L::Info) -> bool
+    {
+        loop {
+            let path_info = self.path_info();
+            match self.right_sibling_or_pibling().map(|n| predicate(path_info, n.info())) {
+                Some(true) => return true,
+                Some(false) => (),
+                None => return false,
+            }
+        }
+    }
+
     fn insert_simple(&mut self, mut newnode: Node<L>, mut after: bool) {
         if self.is_empty() {
             self.cur_node = newnode;
