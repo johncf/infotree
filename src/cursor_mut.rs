@@ -217,10 +217,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     }
 
     pub fn ascend_till(&mut self, height: usize) -> Option<&Node<L>> {
-        while let Some(h) = self.height() {
-            if h == height { return self.current(); }
-            else if h + 1 == height { return self.ascend(); }
-            else if h + 1 < height { self.ascend(); }
+        while let Some(ht) = self.height() {
+            if ht == height { return self.current(); }
+            else if ht + 1 == height { return self.ascend(); }
+            else if ht + 1 < height { self.ascend(); }
             else { break; }
         }
         return None;
@@ -541,15 +541,16 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     /// Insert `node` before or after the current node and rebalance. `node` can be of any height.
     pub fn insert(&mut self, newnode: Node<L>, after: bool) {
+        let newnode_ht = newnode.height();
         match self.height() {
-            Some(h) if h == newnode.height() => {
+            Some(cur_ht) if cur_ht == newnode_ht => {
                 return self.insert_simple(newnode, after);
             }
-            Some(h) if h > newnode.height() => {
+            Some(cur_ht) if cur_ht > newnode_ht => {
                 if after {
-                    self.descend_last_till(|_, _, h| h == newnode.height());
+                    self.descend_last_till(|_, _, ht| ht == newnode_ht);
                 } else {
-                    self.descend_first_till(|_, _, h| h == newnode.height());
+                    self.descend_first_till(|_, _, ht| ht == newnode_ht);
                 }
                 return self.insert_simple(newnode, after);
             }
@@ -866,14 +867,10 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
         let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
 
         loop {
-            if curs.height().map_or(false, |h| h > 1) {
-                curs.descend_last_till(|_, _, h| h == 1);
-            }
             let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
             if nodes.len() > 0 {
-                // TODO investigate why replacing `insert_simple` with `insert` here slows down
-                //      `cursormut_insert` benchmark (which has nothing to do with this method!)
-                curs.insert_simple(Node::from_children(RC::new(nodes)), true);
+                // TODO investigate `cursormut_insert` benchmark slowdown (git blame this line)
+                curs.insert(Node::from_children(RC::new(nodes)), true);
             } else {
                 break;
             }
