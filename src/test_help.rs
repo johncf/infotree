@@ -24,6 +24,8 @@ pub struct ListPath {
     pub index: usize,
     pub run: usize,
 }
+pub struct ListIndex(pub usize);
+pub struct ListRun(pub usize);
 
 impl Leaf for ListLeaf {
     type Info = ListInfo;
@@ -64,6 +66,18 @@ impl PathInfo<ListInfo> for ListPath {
             index: 0,
             run: 0,
         }
+    }
+}
+
+impl SubOrd<ListPath> for ListIndex {
+    fn sub_cmp(&self, rhs: &ListPath) -> cmp::Ordering {
+        self.0.cmp(&rhs.index)
+    }
+}
+
+impl SubOrd<ListPath> for ListRun {
+    fn sub_cmp(&self, rhs: &ListPath) -> cmp::Ordering {
+        self.0.cmp(&rhs.run)
     }
 }
 

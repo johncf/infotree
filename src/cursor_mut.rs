@@ -423,8 +423,59 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///   `extend`-ed with `L::Info` values.
     ///
     /// See `goto_max` for examples.
-    pub fn goto_min<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&L> {
-        unimplemented!()
+    pub fn goto_min<PS: SubOrd<P>>(&mut self, path_info_sub: PS) -> Option<&L> {
+        use std::cmp::Ordering;
+
+        let satisfies = |path_info: P, _info: L::Info| -> bool {
+            match path_info_sub.sub_cmp(&path_info) {
+                Ordering::Less | Ordering::Equal => true,
+                Ordering::Greater => false,
+            }
+        };
+
+        let mut status;
+        // ascend till a well-defined state
+        match self.current().map(|n| satisfies(self.path_info(), n.info())) {
+            Some(true) => {
+                if !self.left_ascend_till(|path_info, info| !satisfies(path_info, info)) {
+                    // condition is satisfied at root
+                    return self.first_leaf(); // must unwrap
+                }
+                status = FindStatus::HitTrue;
+            },
+            Some(false) => {
+                if self.is_root() {
+                    status = FindStatus::HitRoot;
+                } else {
+                    if self.right_ascend_till(|path_info, info| satisfies(path_info, info)) {
+                        self.left_sibling(); // make condition false, must unwrap
+                        status = FindStatus::HitTrue;
+                    } else {
+                        status = FindStatus::HitRoot;
+                    }
+                }
+            },
+            None => return None,
+        }
+
+        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
+
+        // descend till the last leaf that don't satisfy the condition
+        while self.descend_last_till(|path_info, info| satisfies(path_info, info)) {
+            status = FindStatus::HitTrue;
+            if !self.left_till(|path_info, info| !satisfies(path_info, info)) {
+                // there must be a sibling that don't satisfy the condition
+                unreachable!();
+            }
+        }
+
+        debug_assert!(self.leaf().is_some());
+        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
+
+        match status {
+            FindStatus::HitRoot => None,
+            FindStatus::HitTrue => self.next_node().and_then(|n| n.leaf()), // must unwrap
+        }
     }
 
     /// Moves the cursor to the last leaf node which satisfy the following condition:
@@ -977,7 +1028,9 @@ mod tests {
 
     #[test]
     fn goto_min() {
-        // TODO
+        let mut cursor_mut: CursorMut<_, ListPath> = (0..128).map(|i| ListLeaf(i)).collect();
+        assert_eq!(cursor_mut.goto_min(ListIndex(47)), Some(&ListLeaf(47)));
+        // TODO expand
     }
 
     #[test]
