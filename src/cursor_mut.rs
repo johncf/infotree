@@ -688,44 +688,51 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 }
 
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
-    fn insert_simple(&mut self, newnode: Node<L>, after: bool) {
+    fn insert_simple(&mut self, mut newnode: Node<L>, mut after: bool) {
         if self.is_empty() {
             self.cur_node = newnode;
             return;
         }
 
-        {
-            debug_assert_eq!(self.cur_node.height(), newnode.height());
-            match self.steps.pop() {
-                Some(CursorMutStep { mut nodes, mut idx, mut path_info }) => {
+        let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
+        loop {
+            debug_assert_eq!(cur_node.height(), newnode.height());
+            match steps.last_mut() {
+                Some(&mut CursorMutStep { ref mut nodes, ref mut idx, ref mut path_info }) => {
                     let maybe_split = {
-                        let nodes = RC::make_mut(&mut nodes);
-                        let cur_info = self.cur_node.info();
-                        self.cur_node.never_swap(&mut nodes[idx]);
+                        let nodes = RC::make_mut(nodes);
+                        let cur_info = cur_node.info();
+                        cur_node.never_swap(&mut nodes[*idx]);
                         if after {
-                            path_info = path_info.extend(cur_info);
-                            idx += 1;
+                            *path_info = path_info.extend(cur_info);
+                            *idx += 1;
                         }
-                        insert_maybe_split(nodes, idx, newnode)
+                        insert_maybe_split(nodes, *idx, newnode)
                     };
-                    // now self.cur_node.is_never() // checked in swap_current
+                    // now cur_node is never <=> !self.is_empty & assertion in never_swap
                     if let Some(split_node) = maybe_split {
-                        let parent = Node::from_children(nodes); // gather info
-                        self.cur_node = parent;
-                        self.insert_simple(split_node, true);
+                        newnode = split_node;
+                        after = true;
+                        // the only way out of match without breaking
                     } else {
-                        self.cur_node.never_swap(&mut RC::make_mut(&mut nodes)[idx]);
-                        self.steps.push(CursorMutStep { nodes, idx, path_info });
+                        cur_node.never_swap(&mut RC::make_mut(nodes)[*idx]);
+                        break;
                     }
                 }
                 None => { // cur_node is the root
-                    self.cur_node = if after {
-                        Node::concat(self.cur_node.never_take(), newnode)
+                    *cur_node = if after {
+                        Node::concat(cur_node.never_take(), newnode)
                     } else {
-                        Node::concat(newnode, self.cur_node.never_take())
+                        Node::concat(newnode, cur_node.never_take())
                     };
+                    break;
                 }
             }
+
+            // ascend the tree (cur_node is never, nodes[idx] is valid)
+            let CursorMutStep { nodes, .. } = steps.pop().unwrap();
+            let parent = Node::from_children(nodes); // gather info
+            *cur_node = parent;
         }
     }
 
