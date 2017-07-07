@@ -16,7 +16,6 @@ pub mod traits;
 
 pub mod base {
     pub use node::Node;
-    pub use node::LeafMut;
     pub use node::TraverseError;
     pub use cursor::Cursor;
     pub use cursor_mut::CursorMut;

@@ -7,7 +7,6 @@ use mines::boom;
 use std::cmp::{self, Ordering};
 use std::iter::FromIterator;
 use std::mem;
-use std::ops::{Deref, DerefMut};
 
 /// The basic building block of a tree.
 ///
@@ -127,15 +126,6 @@ impl<L: Leaf> Node<L> {
             Node::Internal(_) => None,
             Node::Leaf(ref leaf) => Some(&leaf.val),
             Node::Never(_) => unsafe { boom("Never!") },
-        }
-    }
-
-    /// Get a mutable reference to the leaf value if this is a leaf node, otherwise return `None`.
-    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
-        match self {
-            &mut Node::Internal(_) => None,
-            &mut Node::Leaf(ref mut leaf) => Some(LeafMut(leaf)),
-            &mut Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -385,37 +375,23 @@ pub(crate) fn insert_maybe_split<L: Leaf>(
     }
 }
 
-/// A wrapper type for a mutably borrowed leaf from a `Node`.
-///
-/// When `LeafMut` gets dropped, it will update the `Node` to reflect changes in info.
-pub struct LeafMut<'a, L: 'a + Leaf>(&'a mut LeafVal<L>);
-
-impl<'a, L: Leaf> Deref for LeafMut<'a, L> {
-    type Target = L;
-
-    fn deref(&self) -> &L {
-        &self.0.val
-    }
-}
-
-impl<'a, L: Leaf> DerefMut for LeafMut<'a, L> {
-    fn deref_mut(&mut self) -> &mut L {
-        &mut self.0.val
-    }
-}
-
-impl<'a, L: Leaf> Drop for LeafMut<'a, L> {
-    fn drop(&mut self) {
-        self.0.info = self.0.val.compute_info();
-    }
-}
-
 pub enum TraverseError {
     AllFalse,
     IsLeaf,
 }
 
 impl<L: Leaf> Node<L> {
+    // Update leaf value in place.
+    pub(crate) fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
+        match self {
+            &mut Node::Leaf(ref mut leaf) => {
+                f(&mut leaf.val);
+                leaf.info = leaf.val.compute_info();
+            },
+            _ => (),
+        }
+    }
+
     pub(crate) fn children_mut_must(&mut self) -> &mut NVec<Node<L>> {
         match *self {
             Node::Internal(ref mut int) => RC::make_mut(&mut int.nodes),

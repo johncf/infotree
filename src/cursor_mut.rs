@@ -1,6 +1,6 @@
 use ::{CVec, NVec, RC};
 use ::{MAX_CHILDREN, MIN_CHILDREN};
-use base::{Node, LeafMut};
+use base::Node;
 use traits::{Leaf, PathInfo, SubOrd};
 use node::{insert_maybe_split, balance_maybe_merge};
 
@@ -89,12 +89,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    /// Returns a mutable reference to the leaf's value if the current node is a leaf.
-    pub fn leaf_mut(&mut self) -> Option<LeafMut<L>> {
-        match self.cur_node {
-            Node::Never(_) => None,
-            ref mut cur_node => cur_node.leaf_mut(),
-        }
+    /// Update the leaf value in-place using `f`. This is a no-op if the current node is not a
+    /// leaf.
+    pub fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
+        self.cur_node.leaf_update(f);
     }
 
     /// The cumulative info along the path from root to this node. Returns `P::identity()` if the
@@ -167,16 +165,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn last_leaf(&mut self) -> Option<&L> {
         self.descend_last_till(|_, _, _| false);
         self.leaf()
-    }
-
-    pub fn first_leaf_mut(&mut self) -> Option<LeafMut<L>> {
-        self.descend_first_till(|_, _, _| false);
-        self.leaf_mut()
-    }
-
-    pub fn last_leaf_mut(&mut self) -> Option<LeafMut<L>> {
-        self.descend_last_till(|_, _, _| false);
-        self.leaf_mut()
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`.
