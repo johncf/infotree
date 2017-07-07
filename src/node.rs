@@ -439,6 +439,18 @@ impl<L: Leaf> Node<L> {
         }
     }
 
+    pub(crate) fn never_take(&mut self) -> Node<L> {
+        let node = mem::replace(self, Node::never());
+        debug_assert!(!node.is_never());
+        node
+    }
+
+    // Swaps `self` with `node`. Exactly one of the nodes being swapped must be a never node.
+    pub(crate) fn never_swap(&mut self, other: &mut Node<L>) {
+        debug_assert_eq!(self.is_never(), !other.is_never());
+        mem::swap(self, other);
+    }
+
     pub(crate) fn merge_two(node1: Node<L>, node2: Node<L>) -> Node<L> {
         let mut nodes = NVec::new();
         nodes.push(node1);
