@@ -426,7 +426,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     /// Moves the cursor to the first leaf node which satisfy the following condition:
     ///
-    /// `path_info_sub <= path_info.extend(node.info())`
+    /// `path_info_sub <= path_info`
     ///
     /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
     ///
@@ -441,25 +441,30 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
     /// Moves the cursor to the last leaf node which satisfy the following condition:
     ///
-    /// `path_info <= path_info_sub`
+    /// `path_info_sub >= path_info.extend(node.info())`
     ///
     /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
     ///
     /// Conditions for correctness is the same as `goto_min`.
     ///
-    /// Note: Both of these methods can be visualized as follows:
+    /// These methods can be visualized as follows:
     /// ```text
     /// leaf         :     'a'   'b'   'c'   'd'   'e'
     /// leaf::info() :      1     1     1     1     1
-    /// path_info    :   0     1     2  ^  3  ^  4     5
-    ///                                 ^--------------- goto_min(3) = first of ('c', 'd', 'e')
-    ///      goto_max(3) ---------------------^ = last of ('a', 'b', 'c', 'd')
-    /// ```
-    /// That is, for any `p: PS`, `goto_min(p) <= goto_max(p)`. Below are a few more examples:
-    /// ```text
-    /// goto_min(0) == goto_min(1) == Some('a')
-    /// goto_max(4) == goto_max(5) == goto_max(6) == Some('e')
-    /// goto_min(6) == None
+    /// path_info    :   0     1     2     3     4     5
+    ///     goto_min(3)                    ^--~  ^--~    = first of ('d', 'e') = Some('d')
+    ///     goto_max(3)     ~--^  ~--^  ~--^         = last of ('a', 'b', 'c') = Some('c')
+    ///     goto_max(0) = None
+    ///     goto_min(5) = goto_min(6) = None
+    ///     goto_max(5) = goto_max(6) = Some('e')
+    ///
+    /// =====
+    ///
+    /// leaf         :     't'   'u'   'v'   'w'   'x'
+    /// leaf::info() :      1     1     0     0     1
+    /// path_info    :   0     1     2     2     2     3
+    ///     goto_min(2)              ^--~  ^--~  ^--~    = first of ('v', 'w', 'x') = Some('v')
+    ///     goto_max(2)     ~--^  ~--^  ~--^  ~--^   = last of ('t', 'u', 'v', 'w') = Some('w')
     /// ```
     pub fn goto_max<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&L> {
         unimplemented!()
