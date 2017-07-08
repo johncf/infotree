@@ -158,12 +158,12 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     }
 
     pub fn first_leaf(&mut self) -> Option<&L> {
-        self.descend_first_till(|_, _, _| false);
+        self.descend_first_till(|_, _| false);
         self.leaf()
     }
 
     pub fn last_leaf(&mut self) -> Option<&L> {
-        self.descend_last_till(|_, _, _| false);
+        self.descend_last_till(|_, _| false);
         self.leaf()
     }
 
@@ -326,7 +326,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         debug_assert!(!satisfies(self.current().unwrap().info()));
 
         // descend till the last leaf that don't satisfy the condition
-        while self.descend_last_till(|_, info, _| satisfies(info)) {
+        while self.descend_last_till(|_, info| satisfies(info)) {
             // find the sibling that don't satisfy the condition
             while let Some(true) = self.left_sibling().map(|n| satisfies(n.info())) {}
             status = FindStatus::HitTrue;
@@ -393,7 +393,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         debug_assert!(!satisfies(self.current().unwrap().info()));
 
         // descend till the first leaf that don't satisfy the condition
-        while self.descend_first_till(|_, info, _| satisfies(info)) {
+        while self.descend_first_till(|_, info| satisfies(info)) {
             // find the sibling that don't satisfy the condition
             while let Some(true) = self.right_sibling().map(|n| satisfies(n.info())) {}
             status = FindStatus::HitTrue;
@@ -516,14 +516,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn insert(&mut self, newnode: Node<L>, after: bool) {
         let newnode_ht = newnode.height();
         match self.height() {
-            Some(cur_ht) if cur_ht == newnode_ht => {
-                return self.insert_simple(newnode, after);
-            }
-            Some(cur_ht) if cur_ht > newnode_ht => {
-                if after {
-                    self.descend_last_till(|_, _, ht| ht == newnode_ht);
-                } else {
-                    self.descend_first_till(|_, _, ht| ht == newnode_ht);
+            Some(cur_ht) if cur_ht >= newnode_ht => {
+                while self.cur_node.height() > newnode_ht {
+                    let _res = if after { self.descend_last() } else { self.descend_first() };
+                    debug_assert!(_res.is_some());
                 }
                 return self.insert_simple(newnode, after);
             }
@@ -638,11 +634,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     // Returns `Some(node)` if `predicate` was true for some node while descending on the first
     // child. Returns `None` if `predicate` was never true. Descends atleast once.
     fn descend_first_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info, usize) -> bool
+        where F: Fn(P, L::Info) -> bool
     {
         while self.descend_first().is_some() {
-            let current = &self.cur_node;
-            if predicate(self.path_info(), current.info(), current.height()) {
+            if predicate(self.path_info(), self.cur_node.info()) {
                 return true;
             }
         }
@@ -652,11 +647,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     // Returns `Some(node)` if `predicate` was true for some node while descending on the last
     // child. Returns `None` if `predicate` was never true. Descends atleast once.
     fn descend_last_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info, usize) -> bool
+        where F: Fn(P, L::Info) -> bool
     {
         while self.descend_last().is_some() {
-            let current = &self.cur_node;
-            if predicate(self.path_info(), current.info(), current.height()) {
+            if predicate(self.path_info(), self.cur_node.info()) {
                 return true;
             }
         }
@@ -669,8 +663,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         where F: Fn(P, L::Info) -> bool
     {
         while self.left_sibling_or_pibling().is_some() {
-            let current = &self.cur_node;
-            if predicate(self.path_info(), current.info()) {
+            if predicate(self.path_info(), self.cur_node.info()) {
                 return true;
             }
         }
@@ -683,8 +676,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         where F: Fn(P, L::Info) -> bool
     {
         while self.right_sibling_or_pibling().is_some() {
-            let current = &self.cur_node;
-            if predicate(self.path_info(), current.info()) {
+            if predicate(self.path_info(), self.cur_node.info()) {
                 return true;
             }
         }
