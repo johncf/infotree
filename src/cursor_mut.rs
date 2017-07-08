@@ -134,7 +134,7 @@ enum FindStatus {
 // navigational methods
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn reset(&mut self) {
-        while let Some(_) = self.ascend() {}
+        while self.ascend().is_some() {}
     }
 
     pub fn ascend(&mut self) -> Option<&Node<L>> {
@@ -262,28 +262,20 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// sibling)
     pub fn left_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
         loop {
-            match self.left_sibling() {
-                Some(_) => return Some(&self.cur_node),
-                None => {
-                    match self.ascend() {
-                        Some(_) => (),
-                        None => return None,
-                    }
-                }
+            if self.left_sibling().is_some() {
+                return Some(&self.cur_node);
+            } else if self.ascend().is_none() {
+                return None;
             }
         }
     }
 
     pub fn right_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
         loop {
-            match self.right_sibling() {
-                Some(_) => return Some(&self.cur_node),
-                None => {
-                    match self.ascend() {
-                        Some(_) => (),
-                        None => return None,
-                    }
-                }
+            if self.right_sibling().is_some() {
+                return Some(&self.cur_node);
+            } else if self.ascend().is_none() {
+                return None;
             }
         }
     }
@@ -334,14 +326,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         debug_assert!(!satisfies(self.current().unwrap().info()));
 
         // descend till the last leaf that don't satisfy the condition
-        loop {
-            if self.descend_last_till(|_, info, _| satisfies(info)) {
-                // find the sibling that don't satisfy the condition
-                while let Some(true) = self.left_sibling().map(|n| satisfies(n.info())) {}
-                status = FindStatus::HitTrue;
-            } else {
-                break;
-            }
+        while self.descend_last_till(|_, info, _| satisfies(info)) {
+            // find the sibling that don't satisfy the condition
+            while let Some(true) = self.left_sibling().map(|n| satisfies(n.info())) {}
+            status = FindStatus::HitTrue;
         }
 
         debug_assert!(self.leaf().is_some());
@@ -405,14 +393,10 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         debug_assert!(!satisfies(self.current().unwrap().info()));
 
         // descend till the first leaf that don't satisfy the condition
-        loop {
-            if self.descend_first_till(|_, info, _| satisfies(info)) {
-                // find the sibling that don't satisfy the condition
-                while let Some(true) = self.right_sibling().map(|n| satisfies(n.info())) {}
-                status = FindStatus::HitTrue;
-            } else {
-                break;
-            }
+        while self.descend_first_till(|_, info, _| satisfies(info)) {
+            // find the sibling that don't satisfy the condition
+            while let Some(true) = self.right_sibling().map(|n| satisfies(n.info())) {}
+            status = FindStatus::HitTrue;
         }
 
         debug_assert!(self.leaf().is_some());
@@ -476,19 +460,17 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn next_node(&mut self) -> Option<&Node<L>> {
         let mut depth_delta = 0;
         loop {
-            match self.right_sibling() {
-                Some(_) => {
-                    while depth_delta > 0 {
-                        self.descend_first().unwrap();
-                        depth_delta -= 1;
-                    }
-                    return Some(&self.cur_node);
+            if self.right_sibling().is_some() {
+                while depth_delta > 0 {
+                    self.descend_first().unwrap();
+                    depth_delta -= 1;
                 }
-                None => {
-                    match self.ascend() {
-                        Some(_) => depth_delta += 1,
-                        None => return None,
-                    }
+                return Some(&self.cur_node);
+            } else {
+                if self.ascend().is_some() {
+                    depth_delta += 1;
+                } else {
+                    return None;
                 }
             }
         }
@@ -500,19 +482,17 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn prev_node(&mut self) -> Option<&Node<L>> {
         let mut depth_delta = 0;
         loop {
-            match self.left_sibling() {
-                Some(_) => {
-                    while depth_delta > 0 {
-                        self.descend_last().unwrap();
-                        depth_delta -= 1;
-                    }
-                    return Some(&self.cur_node);
+            if self.left_sibling().is_some() {
+                while depth_delta > 0 {
+                    self.descend_last().unwrap();
+                    depth_delta -= 1;
                 }
-                None => {
-                    match self.ascend() {
-                        Some(_) => depth_delta += 1,
-                        None => return None,
-                    }
+                return Some(&self.cur_node);
+            } else {
+                if self.ascend().is_some() {
+                    depth_delta += 1;
+                } else {
+                    return None;
                 }
             }
         }
