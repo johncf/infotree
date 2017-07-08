@@ -327,9 +327,11 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         // descend till the last leaf that don't satisfy the condition
         while self.descend_last_till(|_, info| satisfies(info)) {
-            // find the sibling that don't satisfy the condition
-            while let Some(true) = self.left_sibling().map(|n| satisfies(n.info())) {}
             status = FindStatus::HitTrue;
+            if !self.left_till(|_, info| !satisfies(info)) {
+                // there must be a sibling that don't satisfy the condition
+                unreachable!();
+            }
         }
 
         debug_assert!(self.leaf().is_some());
@@ -394,9 +396,11 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         // descend till the first leaf that don't satisfy the condition
         while self.descend_first_till(|_, info| satisfies(info)) {
-            // find the sibling that don't satisfy the condition
-            while let Some(true) = self.right_sibling().map(|n| satisfies(n.info())) {}
             status = FindStatus::HitTrue;
+            if !self.right_till(|_, info| !satisfies(info)) {
+                // there must be a sibling that don't satisfy the condition
+                unreachable!();
+            }
         }
 
         debug_assert!(self.leaf().is_some());
@@ -631,8 +635,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 }
 
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
-    // Returns `Some(node)` if `predicate` was true for some node while descending on the first
-    // child. Returns `None` if `predicate` was never true. Descends atleast once.
+    // Calls `descend_first` until `predicate` is `true`. Returns `false` if `predicate` was never
+    // true. Descends atleast once.
     fn descend_first_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
@@ -644,8 +648,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         return false;
     }
 
-    // Returns `Some(node)` if `predicate` was true for some node while descending on the last
-    // child. Returns `None` if `predicate` was never true. Descends atleast once.
+    // Calls `descend_last` until `predicate` is `true`. Returns `false` if `predicate` was never
+    // true. Descends atleast once.
     fn descend_last_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
@@ -657,8 +661,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         return false;
     }
 
-    // Calls `left_sibling_or_pibling` until `predicate` is `true`. Returns `false` if root was
-    // reached and `predicate` is still `false`. Ascends atleast once.
+    // Calls `left_sibling_or_pibling` until `predicate` is `true`. Returns `false` if `predicate`
+    // was never true till root (incl.). Calls `left_sibling_or_pibling` atleast once.
     fn left_ascend_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
@@ -670,12 +674,38 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         return false;
     }
 
-    // Calls `right_sibling_or_pibling` until `predicate` is `true`. Returns `false` if root was
-    // reached and `predicate` is still `false`. Ascends atleast once.
+    // Calls `right_sibling_or_pibling` until `predicate` is `true`. Returns `false` if `predicate`
+    // was never true till root (incl.). Calls `right_sibling_or_pibling` atleast once.
     fn right_ascend_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
         while self.right_sibling_or_pibling().is_some() {
+            if predicate(self.path_info(), self.cur_node.info()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Calls `left_sibling` until `predicate` is `true`. Returns `false` if there are no more
+    // siblings to check. Calls `left_sibling` atleast once.
+    fn left_till<F>(&mut self, predicate: F) -> bool
+        where F: Fn(P, L::Info) -> bool
+    {
+        while self.left_sibling().is_some() {
+            if predicate(self.path_info(), self.cur_node.info()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Calls `right_sibling` until `predicate` is `true`. Returns `false` if there are no more
+    // siblings to check. Calls `right_sibling` atleast once.
+    fn right_till<F>(&mut self, predicate: F) -> bool
+        where F: Fn(P, L::Info) -> bool
+    {
+        while self.right_sibling().is_some() {
             if predicate(self.path_info(), self.cur_node.info()) {
                 return true;
             }
