@@ -879,12 +879,12 @@ mod tests {
     fn insert() {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..128 {
-            cursor_mut.insert_leaf(TestLeaf(i), true);
+            cursor_mut.insert_leaf(ListLeaf(i), true);
         }
         let root = cursor_mut.into_root().unwrap();
         let mut cursor = CursorT::new(&root);
         for i in 0..128 {
-            assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
+            assert_eq!(cursor.next_leaf(), Some(&ListLeaf(i)));
         }
         assert_eq!(cursor.next_leaf(), None);
     }
@@ -893,34 +893,34 @@ mod tests {
     fn delete() {
         let mut cursor_mut = CursorMutT::new();
         for i in 0..128 {
-            cursor_mut.insert_leaf(TestLeaf(i), true);
+            cursor_mut.insert_leaf(ListLeaf(i), true);
         }
         cursor_mut.reset();
         for i in 0..128 {
-            assert_eq!(cursor_mut.remove_leaf(), Some(TestLeaf(i)));
+            assert_eq!(cursor_mut.remove_leaf(), Some(ListLeaf(i)));
         }
         assert_eq!(cursor_mut.is_empty(), true);
     }
 
     #[test]
     fn from_iter() {
-        let cursor_mut: CursorMutT<_> = (0..128).map(|i| TestLeaf(i)).collect();
+        let cursor_mut: CursorMutT<_> = (0..128).map(|i| ListLeaf(i)).collect();
         let root = cursor_mut.into_root().unwrap();
         let mut cursor = CursorT::new(&root);
         for i in 0..128 {
-            assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
+            assert_eq!(cursor.next_leaf(), Some(&ListLeaf(i)));
         }
         assert_eq!(cursor.next_leaf(), None);
     }
 
     #[test]
     fn root_balance() {
-        let mut cursor_mut: CursorMutT<_> = (0..2).map(|i| TestLeaf(i)).collect();
+        let mut cursor_mut: CursorMutT<_> = (0..2).map(|i| ListLeaf(i)).collect();
         cursor_mut.remove_leaf();
         cursor_mut.reset();
         assert_eq!(cursor_mut.height(), Some(1)); // allow root with single leaf child
 
-        let mut cursor_mut: CursorMutT<_> = (0..17).map(|i| TestLeaf(i)).collect();
+        let mut cursor_mut: CursorMutT<_> = (0..17).map(|i| ListLeaf(i)).collect();
         cursor_mut.reset();
         assert_eq!(cursor_mut.height(), Some(2));
         cursor_mut.descend_first();
@@ -935,11 +935,11 @@ mod tests {
 
     #[test]
     fn node_iter() {
-        let mut cursor_mut: CursorMutT<_> = (0..128).map(|i| TestLeaf(i)).collect();
+        let mut cursor_mut: CursorMutT<_> = (0..128).map(|i| ListLeaf(i)).collect();
         cursor_mut.reset();
-        assert_eq!(cursor_mut.first_leaf(), Some(&TestLeaf(0)));
+        assert_eq!(cursor_mut.first_leaf(), Some(&ListLeaf(0)));
         for i in 1..128 {
-            assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), Some(&TestLeaf(i)));
+            assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), Some(&ListLeaf(i)));
         }
         assert_eq!(cursor_mut.next_node().and_then(|n| n.leaf()), None);
     }
@@ -970,6 +970,11 @@ mod tests {
         let leaf = SetLeaf('b', rand_usize(8));
         assert_eq!(cursor_mut.find_min(MinLeaf(leaf)), Some(&leaf));
         assert_eq!(cursor_mut.find_max(MaxLeaf(leaf)), Some(&leaf));
+    }
+
+    #[test]
+    fn goto_min() {
+        // TODO
     }
 
     #[test]

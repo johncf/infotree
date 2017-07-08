@@ -230,30 +230,30 @@ mod tests {
 
     #[test]
     fn leaf_traversal() {
-        let tree: Node<_> = (1..21).map(|i| TestLeaf(i)).collect();
+        let tree: Node<_> = (1..21).map(|i| ListLeaf(i)).collect();
         let mut cursor = CursorT::new(&tree);
         for i in 1..21 {
-            assert_eq!(cursor.next_leaf(), Some(&TestLeaf(i)));
+            assert_eq!(cursor.next_leaf(), Some(&ListLeaf(i)));
         }
         assert_eq!(cursor.next_leaf(), None);
         cursor.reset();
         for i in (1..21).rev() {
-            assert_eq!(cursor.prev_leaf(), Some(&TestLeaf(i)));
+            assert_eq!(cursor.prev_leaf(), Some(&ListLeaf(i)));
         }
         assert_eq!(cursor.prev_leaf(), None);
     }
 
     #[test]
     fn path_extend() {
-        let tree: Node<_> = (1..21).map(|i| TestLeaf(i)).collect();
-        let mut cursor = Cursor::<_, usize>::new(&tree);
+        let tree: Node<_> = (1..21).map(|i| ListLeaf(i)).collect();
+        let mut cursor = Cursor::<_, ListPath>::new(&tree);
         cursor.descend_first_till(0);
-        assert_eq!(*cursor.current().leaf().unwrap(), TestLeaf(1));
-        assert_eq!(cursor.path_info(), 0);
+        assert_eq!(*cursor.current().leaf().unwrap(), ListLeaf(1));
+        assert_eq!(cursor.path_info(), ListPath { index: 0, run: 0 });
         cursor.reset();
         cursor.descend_last_till(0);
-        assert_eq!(*cursor.current().leaf().unwrap(), TestLeaf(20));
-        assert_eq!(cursor.path_info(), 19*20/2);
+        assert_eq!(*cursor.current().leaf().unwrap(), ListLeaf(20));
+        assert_eq!(cursor.path_info(), ListPath { index: 19, run: 19*20/2 });
     }
 
     // FIXME need more tests

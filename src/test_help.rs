@@ -1,5 +1,5 @@
 use base::Cursor;
-use traits::{Info, Leaf, SubOrd};
+use traits::{Info, Leaf, PathInfo, SubOrd};
 
 use std::cmp;
 
@@ -11,12 +11,59 @@ pub fn rand_usize(max: usize) -> usize {
 pub type CursorT<'a, L> = Cursor<'a, L, ()>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TestLeaf(pub usize);
+pub struct ListLeaf(pub usize);
 
-impl Leaf for TestLeaf {
-    type Info = usize;
-    fn compute_info(&self) -> usize {
-        self.0
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListInfo {
+    pub count: usize,
+    pub sum: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListPath {
+    pub index: usize,
+    pub run: usize,
+}
+
+impl Leaf for ListLeaf {
+    type Info = ListInfo;
+    fn compute_info(&self) -> ListInfo {
+        ListInfo {
+            count: 1,
+            sum: self.0,
+        }
+    }
+}
+
+impl Info for ListInfo {
+    fn gather(self, other: Self) -> Self {
+        ListInfo {
+            count: self.count + other.count,
+            sum: self.sum + other.sum,
+        }
+    }
+}
+
+impl PathInfo<ListInfo> for ListPath {
+    fn extend(self, prev: ListInfo) -> Self {
+        ListPath {
+            index: self.index + prev.count,
+            run: self.run + prev.sum,
+        }
+    }
+
+    fn extend_inv(self, curr: ListInfo) -> Self {
+        ListPath {
+            index: self.index - curr.count,
+            run: self.run - curr.sum,
+        }
+    }
+
+    fn identity() -> Self {
+        ListPath {
+            index: 0,
+            run: 0,
+        }
     }
 }
 
@@ -80,5 +127,5 @@ impl SubOrd<SetInfo> for MaxLeaf {
 //#[test]
 //fn print() {
 //    use ::std::mem; use ::{CursorMut};
-//    panic!("printed {}", mem::size_of::<CursorMut<TestLeaf, usize>>());
+//    panic!("printed {}", mem::size_of::<CursorMut<ListLeaf, usize>>());
 //}
