@@ -660,14 +660,13 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn descend_first_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info, usize) -> bool
     {
-        loop {
-            let path_info = self.path_info();
-            match self.descend_first().map(|n| predicate(path_info, n.info(), n.height())) {
-                Some(true) => return true,
-                Some(false) => (),
-                None => return false,
+        while self.descend_first().is_some() {
+            let current = &self.cur_node;
+            if predicate(self.path_info(), current.info(), current.height()) {
+                return true;
             }
         }
+        return false;
     }
 
     // Returns `Some(node)` if `predicate` was true for some node while descending on the last
@@ -675,14 +674,13 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn descend_last_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info, usize) -> bool
     {
-        loop {
-            let path_info = self.path_info();
-            match self.descend_last().map(|n| predicate(path_info, n.info(), n.height())) {
-                Some(true) => return true,
-                Some(false) => (),
-                None => return false,
+        while self.descend_last().is_some() {
+            let current = &self.cur_node;
+            if predicate(self.path_info(), current.info(), current.height()) {
+                return true;
             }
         }
+        return false;
     }
 
     // Calls `left_sibling_or_pibling` until `predicate` is `true`. Returns `false` if root was
@@ -690,14 +688,13 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn left_ascend_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
-        loop {
-            let path_info = self.path_info();
-            match self.left_sibling_or_pibling().map(|n| predicate(path_info, n.info())) {
-                Some(true) => return true,
-                Some(false) => (),
-                None => return false,
+        while self.left_sibling_or_pibling().is_some() {
+            let current = &self.cur_node;
+            if predicate(self.path_info(), current.info()) {
+                return true;
             }
         }
+        return false;
     }
 
     // Calls `right_sibling_or_pibling` until `predicate` is `true`. Returns `false` if root was
@@ -705,14 +702,13 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn right_ascend_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
-        loop {
-            let path_info = self.path_info();
-            match self.right_sibling_or_pibling().map(|n| predicate(path_info, n.info())) {
-                Some(true) => return true,
-                Some(false) => (),
-                None => return false,
+        while self.right_sibling_or_pibling().is_some() {
+            let current = &self.cur_node;
+            if predicate(self.path_info(), current.info()) {
+                return true;
             }
         }
+        return false;
     }
 
     fn insert_simple(&mut self, mut newnode: Node<L>, mut after: bool) {
