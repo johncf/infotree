@@ -292,6 +292,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// - `L::Info::gather` must apply the "min" function on this field.
     ///
     /// See `find_max` for examples.
+    ///
+    /// A more descriptive name of this might be `find_sorted_suffix_min`.
     pub fn find_min<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&L> {
         use std::cmp::Ordering;
 
@@ -361,6 +363,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// find_min('k') == find_max('z') == Some(('v', 2))
     /// find_min('z') == find_max('a') == None
     /// ```
+    ///
+    /// A more descriptive name of this might be `find_sorted_prefix_max`.
     pub fn find_max<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&L> {
         use std::cmp::Ordering;
 
@@ -423,6 +427,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///   `extend`-ed with `L::Info` values.
     ///
     /// See `goto_max` for examples.
+    ///
+    /// A more descriptive name of this might be `goto_path_suffix_min`.
     pub fn goto_min<PS: SubOrd<P>>(&mut self, path_info_sub: PS) -> Option<&L> {
         use std::cmp::Ordering;
 
@@ -505,6 +511,8 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///     goto_min(2)              ^--~  ^--~  ^--~    = first of ('v', 'w', 'x') = Some('v')
     ///     goto_max(2)     ~--^  ~--^  ~--^  ~--^   = last of ('t', 'u', 'v', 'w') = Some('w')
     /// ```
+    ///
+    /// A more descriptive name of this might be `goto_path_prefix_max`.
     pub fn goto_max<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&L> {
         unimplemented!()
     }
