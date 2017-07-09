@@ -1,5 +1,5 @@
 use ::CVec;
-use base::Node;
+use base::{CursorNav, Node};
 use traits::{Leaf, PathInfo};
 use mines::SliceExt; // for boom_get
 
@@ -58,54 +58,9 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         self.current().leaf()
     }
 
-    /// Returns whether the cursor is currently at the root.
-    pub fn is_root(&self) -> bool {
-        self.steps.len() == 0
-    }
-
     /// Height of the current node from leaves.
     pub fn height(&self) -> usize {
         self.current().height()
-    }
-
-    /// The cumulative info along the path from root to this node. Returns `P::identity()` if the
-    /// current node is root.
-    pub fn path_info(&self) -> P {
-        match self.steps.last() {
-            Some(cstep) => cstep.path_info,
-            None => P::identity(),
-        }
-    }
-}
-
-// navigational methods
-impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
-    pub fn reset(&mut self) {
-        self.steps.clear();
-    }
-
-    pub fn ascend(&mut self) -> Option<&'a Node<L>> {
-        self.steps.pop().map(|cstep| &cstep.nodes[cstep.idx])
-    }
-
-    /// Descend the first child recursively till `height`.
-    pub fn first_leaf(&mut self) -> &'a L {
-        while self.descend_first().is_some() {}
-        self.leaf().unwrap()
-    }
-
-    /// Descend the last child recursively till `height`.
-    pub fn last_leaf(&mut self) -> &'a L {
-        while self.descend_last().is_some() {}
-        self.leaf().unwrap()
-    }
-
-    pub fn descend_first(&mut self) -> Option<&Node<L>> {
-        self.descend_by(|_, _, _, _| true, false)
-    }
-
-    pub fn descend_last(&mut self) -> Option<&Node<L>> {
-        self.descend_by(|_, _, _, _| true, true)
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`.
@@ -134,76 +89,96 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
             Err(_) => None,
         }
     }
-
-    /// Make the cursor point to the next element at the same height.
-    ///
-    /// If there is no next element, it returns `None` and cursor resets to root.
-    pub fn next_node(&mut self) -> Option<&'a Node<L>> {
-        let mut depth_delta = 0;
-        loop {
-            match self.steps.pop() {
-                Some(CursorStep { nodes, mut idx, mut path_info }) => {
-                    if idx + 1 < nodes.len() {
-                        path_info = path_info.extend(nodes[idx].info());
-                        idx += 1;
-                        self.steps.push(CursorStep { nodes, idx, path_info });
-                        while depth_delta > 0 {
-                            // descend the left-most element
-                            self.descend_first().unwrap();
-                            depth_delta -= 1;
-                        }
-                        return Some(self.current());
-                    } else {
-                        depth_delta += 1;
-                    }
-                }
-                None => return None, // at the root
-            }
-        }
-    }
-
-    /// Make the cursor point to the previous element at the same height.
-    ///
-    /// If there is no previous element, it returns `None` and cursor resets to root.
-    pub fn prev_node(&mut self) -> Option<&'a Node<L>> {
-        let mut depth_delta = 0;
-        loop {
-            match self.steps.pop() {
-                Some(CursorStep { nodes, mut idx, mut path_info }) => {
-                    if idx > 0 {
-                        idx -= 1;
-                        path_info = path_info.extend_inv(nodes[idx].info());
-                        self.steps.push(CursorStep { nodes, idx, path_info });
-                        while depth_delta > 0 {
-                            // descend the right-most element
-                            self.descend_last().unwrap();
-                            depth_delta -= 1;
-                        }
-                        return Some(self.current());
-                    } else {
-                        depth_delta += 1;
-                    }
-                }
-                None => return None, // at the root
-            }
-        }
-    }
-
-    /// Calls `next_node` and returns the leaf value if it is a leaf node.
-    pub fn next_leaf(&mut self) -> Option<&'a L> {
-        self.next_node().and_then(|n| n.leaf())
-    }
-
-    /// Calls `prev_node` and returns the leaf value if it is a leaf node.
-    pub fn prev_leaf(&mut self) -> Option<&'a L> {
-        self.prev_node().and_then(|n| n.leaf())
-    }
 }
 
 impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     fn descend_raw(&mut self, nodes: &'a [Node<L>], idx: usize, path_info: P) {
         // ArrayVec::push(e) returns Some(e) on overflow!
         assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
+    }
+}
+
+impl<'a, L, P> CursorNav for Cursor<'a, L, P> where L: Leaf, P: PathInfo<L::Info> {
+    type Leaf = L;
+    type PathInfo = P;
+
+    fn is_root(&self) -> bool {
+        self.steps.len() == 0
+    }
+
+    fn path_info(&self) -> P {
+        match self.steps.last() {
+            Some(cstep) => cstep.path_info,
+            None => P::identity(),
+        }
+    }
+
+    #[doc(hidden)]
+    fn _leaf(&self) -> Option<&L> {
+        self.leaf()
+    }
+
+    #[doc(hidden)]
+    fn _height(&self) -> Option<usize> {
+        Some(self.height())
+    }
+
+    #[doc(hidden)]
+    fn _current(&self) -> Option<&Node<L>> {
+        Some(self.current())
+    }
+
+    #[doc(hidden)]
+    fn _current_must(&self) -> &Node<L> {
+        self.current()
+    }
+
+    fn reset(&mut self) {
+        self.steps.clear();
+    }
+
+    fn ascend(&mut self) -> Option<&Node<L>> {
+        self.steps.pop().map(|cstep| &cstep.nodes[cstep.idx])
+    }
+
+    fn descend_first(&mut self) -> Option<&Node<L>> {
+        self.descend_by(|_, _, _, _| true, false)
+    }
+
+    fn descend_last(&mut self) -> Option<&Node<L>> {
+        self.descend_by(|_, _, _, _| true, true)
+    }
+
+    fn left_sibling(&mut self) -> Option<&Node<L>> {
+        let &mut Cursor { ref root, ref mut steps } = self;
+        match steps.last_mut() {
+            Some(&mut CursorStep { nodes, ref mut idx, ref mut path_info }) => {
+                if *idx > 0 {
+                    *idx -= 1;
+                    *path_info = path_info.extend_inv(nodes[*idx].info());
+                    Some(root)
+                } else {
+                    None
+                }
+            }
+            None => None, // at the root
+        }
+    }
+
+    fn right_sibling(&mut self) -> Option<&Node<L>> {
+        let &mut Cursor { ref root, ref mut steps } = self;
+        match steps.last_mut() {
+            Some(&mut CursorStep { nodes, ref mut idx, ref mut path_info }) => {
+                if *idx + 1 < nodes.len() {
+                    *path_info = path_info.extend(nodes[*idx].info());
+                    *idx += 1;
+                    Some(root)
+                } else {
+                    None
+                }
+            }
+            None => None, // at the root
+        }
     }
 }
 
@@ -230,16 +205,18 @@ impl<'a, L, P> Iterator for LeafIter<'a, L, P> where L: Leaf + 'a, P: PathInfo<L
     fn next(&mut self) -> Option<&'a L> {
         if !self.init_done {
             self.init_done = true;
-            Some(self.inner.first_leaf())
+            self.inner.first_leaf();
+            self.inner.leaf()
         } else {
-            self.inner.next_leaf()
+            self.inner.next_node();
+            self.inner.leaf()
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use ::base::{Cursor, Node};
+    use ::base::{Cursor, CursorNav, Node};
     use ::test_help::*;
 
     #[test]
@@ -250,9 +227,8 @@ mod tests {
             assert_eq!(leaf_iter.next(), Some(&ListLeaf(i)));
         }
         assert_eq!(leaf_iter.next(), None);
-
         let mut cursor = CursorT::new(&tree);
-        assert_eq!(cursor.last_leaf(), &ListLeaf(20));
+        assert_eq!(cursor.last_leaf(), Some(&ListLeaf(20)));
         for i in (1..20).rev() {
             assert_eq!(cursor.prev_leaf(), Some(&ListLeaf(i)));
         }
@@ -263,10 +239,10 @@ mod tests {
     fn path_extend() {
         let tree: Node<_> = (1..21).map(|i| ListLeaf(i)).collect();
         let mut cursor = Cursor::<_, ListPath>::new(&tree);
-        assert_eq!(cursor.first_leaf(), &ListLeaf(1));
+        assert_eq!(cursor.first_leaf().unwrap(), &ListLeaf(1));
         assert_eq!(cursor.path_info(), ListPath { index: 0, run: 0 });
         cursor.reset();
-        assert_eq!(cursor.last_leaf(), &ListLeaf(20));
+        assert_eq!(cursor.last_leaf().unwrap(), &ListLeaf(20));
         assert_eq!(cursor.path_info(), ListPath { index: 19, run: 19*20/2 });
     }
 

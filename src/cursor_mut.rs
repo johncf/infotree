@@ -1,7 +1,7 @@
 use ::{CVec, NVec, RC};
 use ::{MAX_CHILDREN, MIN_CHILDREN};
-use base::Node;
-use traits::{Leaf, PathInfo, SubOrd};
+use base::{CursorNav, Node};
+use traits::{Leaf, PathInfo};
 use node::{insert_maybe_split, balance_maybe_merge};
 
 use std::fmt;
@@ -69,13 +69,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         self.current().is_none()
     }
 
-    /// Returns whether the cursor is currently at the root of the tree.
-    ///
-    /// Returns `true` even if the cursor is empty.
-    pub fn is_root(&self) -> bool {
-        self.steps.len() == 0
-    }
-
     /// Height of the current node from leaves.
     pub fn height(&self) -> Option<usize> {
         self.current().map(|node| node.height())
@@ -93,15 +86,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// leaf.
     pub fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
         self.cur_node.leaf_update(f);
-    }
-
-    /// The cumulative info along the path from root to this node. Returns `P::identity()` if the
-    /// current node is root or cursor is empty.
-    pub fn path_info(&self) -> P {
-        match self.steps.last() {
-            Some(cstep) => cstep.path_info,
-            None => P::identity(),
-        }
     }
 
     /// The `path_info` till this node and after.
@@ -123,48 +107,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// and to the right respectively.
     pub fn position(&self) -> Option<(usize, usize)> {
         self.steps.last().map(|cstep| (cstep.idx, cstep.nodes.len() - cstep.idx - 1))
-    }
-}
-
-enum FindStatus {
-    HitRoot, // condition was false at root
-    HitTrue, // condition was true at its pibling
-}
-
-// navigational methods
-impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
-    pub fn reset(&mut self) {
-        while self.ascend().is_some() {}
-    }
-
-    pub fn ascend(&mut self) -> Option<&Node<L>> {
-        match self.pop_step() {
-            Some(CursorMutStep { nodes, idx, .. }) => {
-                self.ascend_raw(nodes, idx);
-                Some(&self.cur_node)
-            }
-            None => { // cur_node is the root (or empty)
-                None
-            }
-        }
-    }
-
-    pub fn descend_first(&mut self) -> Option<&Node<L>> {
-        self.descend_by(|_, _, _, _| true, false)
-    }
-
-    pub fn descend_last(&mut self) -> Option<&Node<L>> {
-        self.descend_by(|_, _, _, _| true, true)
-    }
-
-    pub fn first_leaf(&mut self) -> Option<&L> {
-        self.descend_first_till(|_, _| false);
-        self.leaf()
-    }
-
-    pub fn last_leaf(&mut self) -> Option<&L> {
-        self.descend_last_till(|_, _| false);
-        self.leaf()
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`.
@@ -203,18 +145,70 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             None => None, // empty cursor
         }
     }
+}
 
-    pub fn ascend_till(&mut self, height: usize) -> Option<&Node<L>> {
-        while let Some(ht) = self.height() {
-            if ht == height { return self.current(); }
-            else if ht + 1 == height { return self.ascend(); }
-            else if ht + 1 < height { self.ascend(); }
-            else { break; }
-        }
-        None
+impl<L, P> CursorNav for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
+    type Leaf = L;
+    type PathInfo = P;
+
+    /// Returns `true` even if the cursor is empty.
+    fn is_root(&self) -> bool {
+        self.steps.len() == 0
     }
 
-    pub fn left_sibling(&mut self) -> Option<&Node<L>> {
+    fn path_info(&self) -> P {
+        match self.steps.last() {
+            Some(cstep) => cstep.path_info,
+            None => P::identity(),
+        }
+    }
+
+    #[doc(hidden)]
+    fn _leaf(&self) -> Option<&Self::Leaf> {
+        self.leaf()
+    }
+
+    #[doc(hidden)]
+    fn _height(&self) -> Option<usize> {
+        self.height()
+    }
+
+    #[doc(hidden)]
+    fn _current(&self) -> Option<&Node<L>> {
+        self.current()
+    }
+
+    #[doc(hidden)]
+    fn _current_must(&self) -> &Node<L> {
+        // Calling this is unsafe unless the current node is guaranteed to not be `Never`.
+        &self.cur_node
+    }
+
+    fn reset(&mut self) {
+        while self.ascend().is_some() {}
+    }
+
+    fn ascend(&mut self) -> Option<&Node<L>> {
+        match self.pop_step() {
+            Some(CursorMutStep { nodes, idx, .. }) => {
+                self.ascend_raw(nodes, idx);
+                Some(&self.cur_node)
+            }
+            None => { // cur_node is the root (or empty)
+                None
+            }
+        }
+    }
+
+    fn descend_first(&mut self) -> Option<&Node<L>> {
+        self.descend_by(|_, _, _, _| true, false)
+    }
+
+    fn descend_last(&mut self) -> Option<&Node<L>> {
+        self.descend_by(|_, _, _, _| true, true)
+    }
+
+    fn left_sibling(&mut self) -> Option<&Node<L>> {
         let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CursorMutStep { ref mut nodes, ref mut idx, ref mut path_info }) => {
@@ -235,7 +229,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn right_sibling(&mut self) -> Option<&Node<L>> {
+    fn right_sibling(&mut self) -> Option<&Node<L>> {
         let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CursorMutStep { ref mut nodes, ref mut idx, ref mut path_info }) => {
@@ -255,360 +249,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             }
             None => None, // at the root
         }
-    }
-
-    /// Tries to return the left sibling if exists, or ascends the tree until an ancestor with a
-    /// left sibling is found and returns that sibling.
-    pub fn left_maybe_ascend(&mut self) -> Option<&Node<L>> {
-        loop {
-            if self.left_sibling().is_some() {
-                return Some(&self.cur_node);
-            } else if self.ascend().is_none() {
-                return None;
-            }
-        }
-    }
-
-    pub fn right_maybe_ascend(&mut self) -> Option<&Node<L>> {
-        loop {
-            if self.right_sibling().is_some() {
-                return Some(&self.cur_node);
-            } else if self.ascend().is_none() {
-                return None;
-            }
-        }
-    }
-
-    /// Moves the cursor to the first leaf node which satisfy the following condition:
-    ///
-    /// `info_sub <= node.info()`
-    ///
-    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
-    ///
-    /// Conditions for correctness:
-    /// - The leaves of the tree must be sorted by the value represented by `info_sub` inside
-    ///   `node.info()` in ascending order.
-    /// - `L::Info::gather` must apply the "min" function on this field.
-    ///
-    /// See `find_max` for examples.
-    ///
-    /// A more descriptive name of this might be `find_sorted_suffix_min`.
-    pub fn find_min<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&L> {
-        use std::cmp::Ordering;
-
-        let satisfies = |info: L::Info| -> bool {
-            match info_sub.sub_cmp(&info) {
-                Ordering::Less | Ordering::Equal => true,
-                Ordering::Greater => false,
-            }
-        };
-
-        let mut status;
-        // ascend till a well-defined state
-        match self.current().map(|n| satisfies(n.info())) {
-            Some(true) => {
-                if !self.left_ascend_till(|_, info| !satisfies(info)) {
-                    // condition is satisfied at root
-                    return self.first_leaf(); // must unwrap
-                }
-                status = FindStatus::HitTrue;
-            },
-            Some(false) => {
-                if self.right_ascend_till(|_, info| satisfies(info)) {
-                    self.left_sibling(); // make condition false, must unwrap
-                    status = FindStatus::HitTrue;
-                } else {
-                    status = FindStatus::HitRoot;
-                }
-            },
-            None => return None,
-        }
-
-        debug_assert!(!satisfies(self.current().unwrap().info()));
-
-        // descend till the last leaf that don't satisfy the condition
-        while self.descend_last_till(|_, info| satisfies(info)) {
-            status = FindStatus::HitTrue;
-            if !self.left_till(|_, info| !satisfies(info)) {
-                // there must be a sibling that don't satisfy the condition
-                unreachable!();
-            }
-        }
-
-        debug_assert!(self.leaf().is_some());
-        debug_assert!(!satisfies(self.current().unwrap().info()));
-
-        match status {
-            FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.next_leaf(), // must unwrap
-        }
-    }
-
-    /// Moves the cursor to the last leaf node which satisfy the following condition:
-    ///
-    /// `info_sub >= node.info()`
-    ///
-    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
-    ///
-    /// Conditions for correctness is the same as `find_min`, except that `L::Info::gather` must
-    /// apply the "max" function on this field, instead of "min".
-    ///
-    /// Note: If exactly one leaf satisfies equality with `info_sub`, then both `find_max` and
-    /// `find_min` will return the same element. Here are some examples:
-    /// ```text
-    /// leaf:     ('c', 2)   ('j', 1)   ('j', 4)   ('v', 2)
-    /// find_min('j') == Some(('j', 1))
-    /// find_max('j') == find_max('k') == Some(('j', 4))
-    /// find_min('k') == find_max('z') == Some(('v', 2))
-    /// find_min('z') == find_max('a') == None
-    /// ```
-    ///
-    /// A more descriptive name of this might be `find_sorted_prefix_max`.
-    pub fn find_max<IS: SubOrd<L::Info>>(&mut self, info_sub: IS) -> Option<&L> {
-        use std::cmp::Ordering;
-
-        let satisfies = |info: L::Info| -> bool {
-            match info_sub.sub_cmp(&info) {
-                Ordering::Greater | Ordering::Equal => true,
-                Ordering::Less => false,
-            }
-        };
-
-        let mut status;
-        // ascend till a well-defined state
-        match self.current().map(|n| satisfies(n.info())) {
-            Some(true) => {
-                if !self.right_ascend_till(|_, info| !satisfies(info)) {
-                    // condition is satisfied at root
-                    return self.last_leaf(); // must unwrap
-                }
-                status = FindStatus::HitTrue;
-            },
-            Some(false) => {
-                if self.left_ascend_till(|_, info| satisfies(info)) {
-                    self.right_sibling(); // make condition false, must unwrap
-                    status = FindStatus::HitTrue;
-                } else {
-                    status = FindStatus::HitRoot;
-                }
-            },
-            None => return None,
-        }
-
-        debug_assert!(!satisfies(self.current().unwrap().info()));
-
-        // descend till the first leaf that don't satisfy the condition
-        while self.descend_first_till(|_, info| satisfies(info)) {
-            status = FindStatus::HitTrue;
-            if !self.right_till(|_, info| !satisfies(info)) {
-                // there must be a sibling that don't satisfy the condition
-                unreachable!();
-            }
-        }
-
-        debug_assert!(self.leaf().is_some());
-        debug_assert!(!satisfies(self.current().unwrap().info()));
-
-        match status {
-            FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.prev_leaf(), // must unwrap
-        }
-    }
-
-    /// Moves the cursor to the first leaf node which satisfy the following condition:
-    ///
-    /// `path_info_sub <= path_info`
-    ///
-    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
-    ///
-    /// Conditions for correctness:
-    /// - `L::Info` should not contain "negative" values so that path-info is non-decreasing when
-    ///   `extend`-ed with `L::Info` values.
-    ///
-    /// See `goto_max` for examples.
-    ///
-    /// A more descriptive name of this might be `goto_path_suffix_min`.
-    pub fn goto_min<PS: SubOrd<P>>(&mut self, path_info_sub: PS) -> Option<&L> {
-        use std::cmp::Ordering;
-
-        let satisfies = |path_info: P, _info: L::Info| -> bool {
-            match path_info_sub.sub_cmp(&path_info) {
-                Ordering::Less | Ordering::Equal => true,
-                Ordering::Greater => false,
-            }
-        };
-
-        let mut status;
-        // ascend till a well-defined state
-        match self.current().map(|n| satisfies(self.path_info(), n.info())) {
-            Some(true) => {
-                if !self.left_ascend_till(|path_info, info| !satisfies(path_info, info)) {
-                    // condition is satisfied at root
-                    return self.first_leaf(); // must unwrap
-                }
-                status = FindStatus::HitTrue;
-            },
-            Some(false) => {
-                if self.is_root() {
-                    status = FindStatus::HitRoot;
-                } else {
-                    if self.right_ascend_till(|path_info, info| satisfies(path_info, info)) {
-                        self.left_sibling(); // make condition false, must unwrap
-                        status = FindStatus::HitTrue;
-                    } else {
-                        status = FindStatus::HitRoot;
-                    }
-                }
-            },
-            None => return None,
-        }
-
-        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
-
-        // descend till the last leaf that don't satisfy the condition
-        while self.descend_last_till(|path_info, info| satisfies(path_info, info)) {
-            status = FindStatus::HitTrue;
-            if !self.left_till(|path_info, info| !satisfies(path_info, info)) {
-                // there must be a sibling that don't satisfy the condition
-                unreachable!();
-            }
-        }
-
-        debug_assert!(self.leaf().is_some());
-        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
-
-        match status {
-            FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.next_leaf(), // must unwrap
-        }
-    }
-
-    /// Moves the cursor to the last leaf node which satisfy the following condition:
-    ///
-    /// `path_info_sub >= path_info.extend(node.info())`
-    ///
-    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
-    ///
-    /// Conditions for correctness is the same as `goto_min`.
-    ///
-    /// These methods can be visualized as follows:
-    /// ```text
-    /// leaf         :     'a'   'b'   'c'   'd'   'e'
-    /// leaf::info() :      1     1     1     1     1
-    /// path_info    :   0     1     2     3     4     5
-    ///     goto_min(3)                    ^--~  ^--~    = first of ('d', 'e') = Some('d')
-    ///     goto_max(3)     ~--^  ~--^  ~--^         = last of ('a', 'b', 'c') = Some('c')
-    ///     goto_max(0) = None
-    ///     goto_min(5) = goto_min(6) = None
-    ///     goto_max(5) = goto_max(6) = Some('e')
-    ///
-    /// =====
-    ///
-    /// leaf         :     't'   'u'   'v'   'w'   'x'
-    /// leaf::info() :      1     1     0     0     1
-    /// path_info    :   0     1     2     2     2     3
-    ///     goto_min(2)              ^--~  ^--~  ^--~    = first of ('v', 'w', 'x') = Some('v')
-    ///     goto_max(2)     ~--^  ~--^  ~--^  ~--^   = last of ('t', 'u', 'v', 'w') = Some('w')
-    /// ```
-    ///
-    /// A more descriptive name of this might be `goto_path_prefix_max`.
-    pub fn goto_max<PS: SubOrd<P>>(&mut self, path_info_sub: PS) -> Option<&L> {
-        use std::cmp::Ordering;
-
-        let satisfies = |path_info: P, info: L::Info| -> bool {
-            match path_info_sub.sub_cmp(&path_info.extend(info)) {
-                Ordering::Greater | Ordering::Equal => true,
-                Ordering::Less => false,
-            }
-        };
-
-        let mut status;
-        // ascend till a well-defined state
-        match self.current().map(|n| satisfies(self.path_info(), n.info())) {
-            Some(true) => {
-                if !self.right_ascend_till(|path_info, info| !satisfies(path_info, info)) {
-                    // condition is satisfied at root
-                    return self.last_leaf(); // must unwrap
-                }
-                status = FindStatus::HitTrue;
-            },
-            Some(false) => {
-                if self.is_root() {
-                    status = FindStatus::HitRoot;
-                } else {
-                    if self.left_ascend_till(|path_info, info| satisfies(path_info, info)) {
-                        self.right_sibling(); // make condition false, must unwrap
-                        status = FindStatus::HitTrue;
-                    } else {
-                        status = FindStatus::HitRoot;
-                    }
-                }
-            },
-            None => return None,
-        }
-
-        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
-
-        // descend till the last leaf that don't satisfy the condition
-        while self.descend_first_till(|path_info, info| satisfies(path_info, info)) {
-            status = FindStatus::HitTrue;
-            if !self.right_till(|path_info, info| !satisfies(path_info, info)) {
-                // there must be a sibling that don't satisfy the condition
-                unreachable!();
-            }
-        }
-
-        debug_assert!(self.leaf().is_some());
-        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
-
-        match status {
-            FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.prev_leaf(), // must unwrap
-        }
-    }
-
-    /// Make the cursor point to the next element at the same height.
-    ///
-    /// If there is no next element, it returns `None` and cursor resets to root.
-    pub fn next_node(&mut self) -> Option<&Node<L>> {
-        let height = self.height();
-        if self.right_maybe_ascend().is_some() {
-            let height = height.unwrap();
-            while self.cur_node.height() > height {
-                let _res = self.descend_first();
-                debug_assert!(_res.is_some());
-            }
-            Some(&self.cur_node)
-        } else {
-            None
-        }
-    }
-
-    /// Make the cursor point to the previous element at the same height.
-    ///
-    /// If there is no previous element, it returns `None` and cursor resets to root.
-    pub fn prev_node(&mut self) -> Option<&Node<L>> {
-        let height = self.height();
-        if self.left_maybe_ascend().is_some() {
-            let height = height.unwrap();
-            while self.cur_node.height() > height {
-                let _res = self.descend_last();
-                debug_assert!(_res.is_some());
-            }
-            Some(&self.cur_node)
-        } else {
-            None
-        }
-    }
-
-    /// Calls `next_node` and returns the leaf value if it is a leaf node.
-    pub fn next_leaf(&mut self) -> Option<&L> {
-        self.next_node().and_then(|n| n.leaf())
-    }
-
-    /// Calls `prev_node` and returns the leaf value if it is a leaf node.
-    pub fn prev_leaf(&mut self) -> Option<&L> {
-        self.prev_node().and_then(|n| n.leaf())
     }
 }
 
@@ -741,84 +381,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 }
 
 impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
-    // Calls `descend_first` until `predicate` is `true`. Returns `false` if `predicate` was never
-    // true. Descends atleast once.
-    fn descend_first_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info) -> bool
-    {
-        while self.descend_first().is_some() {
-            if predicate(self.path_info(), self.cur_node.info()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Calls `descend_last` until `predicate` is `true`. Returns `false` if `predicate` was never
-    // true. Descends atleast once.
-    fn descend_last_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info) -> bool
-    {
-        while self.descend_last().is_some() {
-            if predicate(self.path_info(), self.cur_node.info()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Calls `left_maybe_ascend` until `predicate` is `true`. Returns `false` if `predicate` was
-    // never true till root (incl.). Calls `left_maybe_ascend` atleast once.
-    fn left_ascend_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info) -> bool
-    {
-        while self.left_maybe_ascend().is_some() {
-            if predicate(self.path_info(), self.cur_node.info()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Calls `right_maybe_ascend` until `predicate` is `true`. Returns `false` if `predicate` was
-    // never true till root (incl.). Calls `right_maybe_ascend` atleast once.
-    fn right_ascend_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info) -> bool
-    {
-        while self.right_maybe_ascend().is_some() {
-            if predicate(self.path_info(), self.cur_node.info()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Calls `left_sibling` until `predicate` is `true`. Returns `false` if there are no more
-    // siblings to check. Calls `left_sibling` atleast once.
-    fn left_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info) -> bool
-    {
-        while self.left_sibling().is_some() {
-            if predicate(self.path_info(), self.cur_node.info()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Calls `right_sibling` until `predicate` is `true`. Returns `false` if there are no more
-    // siblings to check. Calls `right_sibling` atleast once.
-    fn right_till<F>(&mut self, predicate: F) -> bool
-        where F: Fn(P, L::Info) -> bool
-    {
-        while self.right_sibling().is_some() {
-            if predicate(self.path_info(), self.cur_node.info()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     fn insert_simple(&mut self, mut newnode: Node<L>, mut after: bool) {
         if self.is_empty() {
             self.cur_node = newnode;
@@ -988,7 +550,7 @@ impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Inf
 #[cfg(test)]
 mod tests {
     use super::CursorMut;
-    use ::base::Node;
+    use ::base::{Node, CursorNav};
     use ::test_help::*;
 
     type CursorMutT<L> = CursorMut<L, ()>;

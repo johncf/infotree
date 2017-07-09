@@ -5,7 +5,7 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::base::CursorMut;
+use infotree::base::{CursorMut, CursorNav};
 use infotree::traits::Leaf;
 
 use test::Bencher;

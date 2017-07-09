@@ -14,6 +14,7 @@ mod debug;
 mod node;
 mod cursor;
 mod cursor_mut;
+mod cursor_nav;
 
 pub mod traits;
 
@@ -22,7 +23,10 @@ pub mod base {
     pub use node::TraverseError;
     pub use cursor::Cursor;
     pub use cursor_mut::CursorMut;
+    pub use cursor_nav::CursorNav;
 }
+
+pub use cursor_nav::actions;
 
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
