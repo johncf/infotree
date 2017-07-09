@@ -513,8 +513,59 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// ```
     ///
     /// A more descriptive name of this might be `goto_path_prefix_max`.
-    pub fn goto_max<PS: SubOrd<P>>(&mut self, _path_info_sub: PS) -> Option<&L> {
-        unimplemented!()
+    pub fn goto_max<PS: SubOrd<P>>(&mut self, path_info_sub: PS) -> Option<&L> {
+        use std::cmp::Ordering;
+
+        let satisfies = |path_info: P, info: L::Info| -> bool {
+            match path_info_sub.sub_cmp(&path_info.extend(info)) {
+                Ordering::Greater | Ordering::Equal => true,
+                Ordering::Less => false,
+            }
+        };
+
+        let mut status;
+        // ascend till a well-defined state
+        match self.current().map(|n| satisfies(self.path_info(), n.info())) {
+            Some(true) => {
+                if !self.right_ascend_till(|path_info, info| !satisfies(path_info, info)) {
+                    // condition is satisfied at root
+                    return self.last_leaf(); // must unwrap
+                }
+                status = FindStatus::HitTrue;
+            },
+            Some(false) => {
+                if self.is_root() {
+                    status = FindStatus::HitRoot;
+                } else {
+                    if self.left_ascend_till(|path_info, info| satisfies(path_info, info)) {
+                        self.right_sibling(); // make condition false, must unwrap
+                        status = FindStatus::HitTrue;
+                    } else {
+                        status = FindStatus::HitRoot;
+                    }
+                }
+            },
+            None => return None,
+        }
+
+        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
+
+        // descend till the last leaf that don't satisfy the condition
+        while self.descend_first_till(|path_info, info| satisfies(path_info, info)) {
+            status = FindStatus::HitTrue;
+            if !self.right_till(|path_info, info| !satisfies(path_info, info)) {
+                // there must be a sibling that don't satisfy the condition
+                unreachable!();
+            }
+        }
+
+        debug_assert!(self.leaf().is_some());
+        debug_assert!(!satisfies(self.path_info(), self.current().unwrap().info()));
+
+        match status {
+            FindStatus::HitRoot => None,
+            FindStatus::HitTrue => self.prev_node().and_then(|n| n.leaf()), // must unwrap
+        }
     }
 
     /// Make the cursor point to the next element at the same height.
@@ -1035,10 +1086,20 @@ mod tests {
     }
 
     #[test]
-    fn goto_min() {
+    fn goto_min_max() {
         let mut cursor_mut: CursorMut<_, ListPath> = (0..128).map(|i| ListLeaf(i)).collect();
-        assert_eq!(cursor_mut.goto_min(ListIndex(47)), Some(&ListLeaf(47)));
-        // TODO expand
+        assert_eq!(cursor_mut.goto_min(ListIndex(50)), Some(&ListLeaf(50)));
+        assert_eq!(cursor_mut.goto_min(ListRun(79*80/2)), Some(&ListLeaf(80)));
+        cursor_mut.reset();
+        assert_eq!(cursor_mut.goto_max(ListIndex(50)), Some(&ListLeaf(49)));
+        assert_eq!(cursor_mut.goto_max(ListRun(79*80/2)), Some(&ListLeaf(79)));
+
+        let mut cursor_mut: CursorMut<_, ListPath> = vec![2, 1, 0, 0, 0, 3, 4].into_iter()
+                                                         .map(|i| ListLeaf(i)).collect();
+        assert_eq!(cursor_mut.goto_min(ListRun(3)), Some(&ListLeaf(0)));
+        assert_eq!(cursor_mut.prev_leaf(), Some(&ListLeaf(1)));
+        assert_eq!(cursor_mut.goto_max(ListRun(3)), Some(&ListLeaf(0)));
+        assert_eq!(cursor_mut.next_leaf(), Some(&ListLeaf(3)));
     }
 
     #[test]
