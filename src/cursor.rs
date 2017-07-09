@@ -52,6 +52,11 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
+    /// Returns a reference to the leaf's value if the current node is a leaf.
+    pub fn leaf(&self) -> Option<&'a L> {
+        self.current().leaf()
+    }
+
     /// Returns whether the cursor is currently at the root.
     pub fn is_root(&self) -> bool {
         self.steps.len() == 0
@@ -83,27 +88,23 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     }
 
     /// Descend the first child recursively till `height`.
-    pub fn descend_first_till(&mut self, height: usize) {
-        while self.height() > height {
-            self.descend_left(0);
-        }
+    pub fn first_leaf(&mut self) -> &'a L {
+        while self.descend_first().is_some() {}
+        self.leaf().unwrap()
     }
 
     /// Descend the last child recursively till `height`.
-    pub fn descend_last_till(&mut self, height: usize) {
-        while self.height() > height {
-            self.descend_right(0);
-        }
+    pub fn last_leaf(&mut self) -> &'a L {
+        while self.descend_last().is_some() {}
+        self.leaf().unwrap()
     }
 
-    /// Descend on the `idx`-th child from left. The first child is numbered `0`.
-    pub fn descend_left(&mut self, idx: usize) -> Option<&'a Node<L>> {
-        self.descend_by(|_, _, i, _| i == idx, false)
+    pub fn descend_first(&mut self) -> Option<&Node<L>> {
+        self.descend_by(|_, _, _, _| true, false)
     }
 
-    /// Descend on the `idx`-th child from right. The last child is numbered `0`.
-    pub fn descend_right(&mut self, idx: usize) -> Option<&'a Node<L>> {
-        self.descend_by(|_, _, _, i| i == idx, true)
+    pub fn descend_last(&mut self) -> Option<&Node<L>> {
+        self.descend_by(|_, _, _, _| true, true)
     }
 
     /// Descend the tree once, on the child for which `f` returns `true`.
@@ -133,11 +134,6 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    fn descend_raw(&mut self, nodes: &'a [Node<L>], idx: usize, path_info: P) {
-        // ArrayVec::push(e) returns Some(e) on overflow!
-        assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
-    }
-
     /// Make the cursor point to the next element at the same height.
     ///
     /// If there is no next element, it returns `None` and cursor resets to root.
@@ -152,7 +148,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
                         self.steps.push(CursorStep { nodes, idx, path_info });
                         while depth_delta > 0 {
                             // descend the left-most element
-                            self.descend_left(0).unwrap();
+                            self.descend_first().unwrap();
                             depth_delta -= 1;
                         }
                         return Some(self.current());
@@ -179,7 +175,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
                         self.steps.push(CursorStep { nodes, idx, path_info });
                         while depth_delta > 0 {
                             // descend the right-most element
-                            self.descend_right(0).unwrap();
+                            self.descend_last().unwrap();
                             depth_delta -= 1;
                         }
                         return Some(self.current());
@@ -192,33 +188,50 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
         }
     }
 
-    /// If the current node is a leaf, calls `next_node`, otherwise returns the first of the
-    /// descendant leaves.
-    ///
-    /// Thus at the last leaf of the tree, it returns `None` and cursor resets to root, therefore
-    /// calling `next_leaf` again will return the first leaf of the tree.
+    /// Calls `next_node` and returns the leaf value if it is a leaf node.
     pub fn next_leaf(&mut self) -> Option<&'a L> {
-        match self.current().leaf() {
-            None => {
-                self.descend_first_till(0);
-                self.current().leaf()
-            },
-            Some(_) => self.next_node().map(|node| node.leaf().unwrap()),
-        }
+        self.next_node().and_then(|n| n.leaf())
     }
 
-    /// If the current node is a leaf, calls `prev_node`, otherwise returns the last of the
-    /// descendant leaves.
-    ///
-    /// Thus at the first leaf of the tree, it returns `None` and cursor resets to root, therefore
-    /// calling `prev_leaf` again will return the last leaf of the tree.
+    /// Calls `prev_node` and returns the leaf value if it is a leaf node.
     pub fn prev_leaf(&mut self) -> Option<&'a L> {
-        match self.current().leaf() {
-            None => {
-                self.descend_last_till(0);
-                self.current().leaf()
-            },
-            Some(_) => self.prev_node().map(|node| node.leaf().unwrap()),
+        self.prev_node().and_then(|n| n.leaf())
+    }
+}
+
+impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
+    fn descend_raw(&mut self, nodes: &'a [Node<L>], idx: usize, path_info: P) {
+        // ArrayVec::push(e) returns Some(e) on overflow!
+        assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
+    }
+}
+
+impl<'a, L, P> IntoIterator for Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
+    type IntoIter = LeafIter<'a, L, P>;
+    type Item = &'a L;
+
+    fn into_iter(mut self) -> LeafIter<'a, L, P> {
+        self.reset();
+        LeafIter {
+            inner: self,
+            init_done: false,
+        }
+    }
+}
+
+pub struct LeafIter<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
+    inner: Cursor<'a, L, P>,
+    init_done: bool,
+}
+
+impl<'a, L, P> Iterator for LeafIter<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
+    type Item = &'a L;
+    fn next(&mut self) -> Option<&'a L> {
+        if !self.init_done {
+            self.init_done = true;
+            Some(self.inner.first_leaf())
+        } else {
+            self.inner.next_leaf()
         }
     }
 }
@@ -231,13 +244,15 @@ mod tests {
     #[test]
     fn leaf_traversal() {
         let tree: Node<_> = (1..21).map(|i| ListLeaf(i)).collect();
-        let mut cursor = CursorT::new(&tree);
+        let mut leaf_iter = CursorT::new(&tree).into_iter();
         for i in 1..21 {
-            assert_eq!(cursor.next_leaf(), Some(&ListLeaf(i)));
+            assert_eq!(leaf_iter.next(), Some(&ListLeaf(i)));
         }
-        assert_eq!(cursor.next_leaf(), None);
-        cursor.reset();
-        for i in (1..21).rev() {
+        assert_eq!(leaf_iter.next(), None);
+
+        let mut cursor = CursorT::new(&tree);
+        assert_eq!(cursor.last_leaf(), &ListLeaf(20));
+        for i in (1..20).rev() {
             assert_eq!(cursor.prev_leaf(), Some(&ListLeaf(i)));
         }
         assert_eq!(cursor.prev_leaf(), None);
@@ -247,12 +262,10 @@ mod tests {
     fn path_extend() {
         let tree: Node<_> = (1..21).map(|i| ListLeaf(i)).collect();
         let mut cursor = Cursor::<_, ListPath>::new(&tree);
-        cursor.descend_first_till(0);
-        assert_eq!(*cursor.current().leaf().unwrap(), ListLeaf(1));
+        assert_eq!(cursor.first_leaf(), &ListLeaf(1));
         assert_eq!(cursor.path_info(), ListPath { index: 0, run: 0 });
         cursor.reset();
-        cursor.descend_last_till(0);
-        assert_eq!(*cursor.current().leaf().unwrap(), ListLeaf(20));
+        assert_eq!(cursor.last_leaf(), &ListLeaf(20));
         assert_eq!(cursor.path_info(), ListPath { index: 19, run: 19*20/2 });
     }
 

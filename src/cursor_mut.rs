@@ -1001,11 +1001,11 @@ mod tests {
             cursor_mut.insert_leaf(ListLeaf(i), true);
         }
         let root = cursor_mut.into_root().unwrap();
-        let mut cursor = CursorT::new(&root);
+        let mut leaf_iter = CursorT::new(&root).into_iter();
         for i in 0..128 {
-            assert_eq!(cursor.next_leaf(), Some(&ListLeaf(i)));
+            assert_eq!(leaf_iter.next(), Some(&ListLeaf(i)));
         }
-        assert_eq!(cursor.next_leaf(), None);
+        assert_eq!(leaf_iter.next(), None);
     }
 
     #[test]
@@ -1025,11 +1025,11 @@ mod tests {
     fn from_iter() {
         let cursor_mut: CursorMutT<_> = (0..128).map(|i| ListLeaf(i)).collect();
         let root = cursor_mut.into_root().unwrap();
-        let mut cursor = CursorT::new(&root);
+        let mut leaf_iter = CursorT::new(&root).into_iter();
         for i in 0..128 {
-            assert_eq!(cursor.next_leaf(), Some(&ListLeaf(i)));
+            assert_eq!(leaf_iter.next(), Some(&ListLeaf(i)));
         }
-        assert_eq!(cursor.next_leaf(), None);
+        assert_eq!(leaf_iter.next(), None);
     }
 
     #[test]
@@ -1122,15 +1122,15 @@ mod tests {
         cursor_mut.find_min(MinLeaf(SetLeaf('a', split_at))).unwrap();
 
         let right = cursor_mut.split_off().unwrap();
-        let mut cursor = CursorT::new(&right);
+        let mut leaf_iter = CursorT::new(&right).into_iter();
         for i in split_at..total {
-            assert_eq!(cursor.next_leaf(), Some(&SetLeaf('a', i)));
+            assert_eq!(leaf_iter.next(), Some(&SetLeaf('a', i)));
         }
 
         let left = cursor_mut.into_root().unwrap();
-        let mut cursor = CursorT::new(&left);
+        let mut leaf_iter = CursorT::new(&left).into_iter();
         for i in 0..split_at {
-            assert_eq!(cursor.next_leaf(), Some(&SetLeaf('a', i)));
+            assert_eq!(leaf_iter.next(), Some(&SetLeaf('a', i)));
         }
 
         let (left_ht, right_ht) = (left.height(), right.height());
@@ -1155,9 +1155,9 @@ mod tests {
         cursor_mut.insert(node, false);
         cursor_mut.reset();
 
-        let mut cursor = CursorT::new(&cursor_mut.current().unwrap());
+        let mut leaf_iter = CursorT::new(cursor_mut.current().unwrap()).into_iter();
         for i in 0..l1+l2+l3 {
-            assert_eq!(cursor.next_leaf(), Some(&SetLeaf('a', i)));
+            assert_eq!(leaf_iter.next(), Some(&SetLeaf('a', i)));
         }
     }
 
