@@ -861,7 +861,6 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             }
 
             // ascend the tree (cur_node is never, nodes[idx] is valid)
-            testln!("ascended!");
             let CursorMutStep { nodes, .. } = steps.pop().unwrap();
             let parent = Node::from_children(nodes); // gather info
             *cur_node = parent;
@@ -950,13 +949,13 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     }
 
     fn push_step(&mut self, cstep: CursorMutStep<L, P>) {
-        testln!("descended!");
+        //testln!("descended!");
         let _res = self.steps.push(cstep);
         assert!(_res.is_none(), "Exceeded maximum supported depth.");
     }
 
     fn pop_step(&mut self) -> Option<CursorMutStep<L, P>> {
-        testln!("ascended! (try)");
+        //testln!("ascended! (try)");
         self.steps.pop()
     }
 
