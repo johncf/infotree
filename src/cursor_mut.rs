@@ -521,21 +521,16 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///
     /// If there is no next element, it returns `None` and cursor resets to root.
     pub fn next_node(&mut self) -> Option<&Node<L>> {
-        let mut depth_delta = 0;
-        loop {
-            if self.right_sibling().is_some() {
-                while depth_delta > 0 {
-                    self.descend_first().unwrap();
-                    depth_delta -= 1;
-                }
-                return Some(&self.cur_node);
-            } else {
-                if self.ascend().is_some() {
-                    depth_delta += 1;
-                } else {
-                    return None;
-                }
+        let height = self.height();
+        if self.right_sibling_or_pibling().is_some() {
+            let height = height.unwrap();
+            while self.cur_node.height() > height {
+                let _res = self.descend_first();
+                debug_assert!(_res.is_some());
             }
+            return Some(&self.cur_node);
+        } else {
+            return None;
         }
     }
 
@@ -543,22 +538,27 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     ///
     /// If there is no previous element, it returns `None` and cursor resets to root.
     pub fn prev_node(&mut self) -> Option<&Node<L>> {
-        let mut depth_delta = 0;
-        loop {
-            if self.left_sibling().is_some() {
-                while depth_delta > 0 {
-                    self.descend_last().unwrap();
-                    depth_delta -= 1;
-                }
-                return Some(&self.cur_node);
-            } else {
-                if self.ascend().is_some() {
-                    depth_delta += 1;
-                } else {
-                    return None;
-                }
+        let height = self.height();
+        if self.left_sibling_or_pibling().is_some() {
+            let height = height.unwrap();
+            while self.cur_node.height() > height {
+                let _res = self.descend_last();
+                debug_assert!(_res.is_some());
             }
+            return Some(&self.cur_node);
+        } else {
+            return None;
         }
+    }
+
+    /// Calls `next_node` and returns the leaf value if it is a leaf node.
+    pub fn next_leaf(&mut self) -> Option<&L> {
+        self.next_node().and_then(|n| n.leaf())
+    }
+
+    /// Calls `prev_node` and returns the leaf value if it is a leaf node.
+    pub fn prev_leaf(&mut self) -> Option<&L> {
+        self.prev_node().and_then(|n| n.leaf())
     }
 }
 
