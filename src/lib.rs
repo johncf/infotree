@@ -8,6 +8,9 @@ extern crate mines;
 
 use arrayvec::ArrayVec;
 
+#[macro_use]
+mod debug;
+
 mod node;
 mod cursor;
 mod cursor_mut;
