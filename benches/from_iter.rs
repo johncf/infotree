@@ -26,21 +26,21 @@ impl Leaf for TestLeaf {
 #[bench]
 fn btreeset_collect(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).collect::<BTreeSet<_>>();
+        (0..TOTAL).collect::<BTreeSet<_>>()
     })
 }
 
 #[bench]
 fn linkedlist_collect(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).collect::<LinkedList<_>>();
+        (0..TOTAL).collect::<LinkedList<_>>()
     })
 }
 
 #[bench]
 fn cursormut_collect(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_, ()>>();
+        (0..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_, ()>>()
     })
 }
 
@@ -51,13 +51,14 @@ fn cursormut_insert(b: &mut Bencher) {
         for i in 0..TOTAL {
             cursor_mut.insert_leaf(TestLeaf(i), true);
         }
+        cursor_mut
     })
 }
 
 #[bench]
 fn node_collect(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).map(|e| TestLeaf(e)).collect::<Node<_>>();
+        (0..TOTAL).map(|e| TestLeaf(e)).collect::<Node<_>>()
     })
 }
 
@@ -68,12 +69,13 @@ fn node_concat(b: &mut Bencher) {
         for i in 1..TOTAL {
             node = Node::concat(node, Node::from_leaf(TestLeaf(i)));
         }
+        node
     })
 }
 
 #[bench]
 fn vec_collect(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).collect::<Vec<_>>();
+        (0..TOTAL).collect::<Vec<_>>()
     })
 }

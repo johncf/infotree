@@ -211,7 +211,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
             else if ht + 1 < height { self.ascend(); }
             else { break; }
         }
-        return None;
+        None
     }
 
     pub fn left_sibling(&mut self) -> Option<&Node<L>> {
@@ -257,10 +257,9 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    /// Tries to return the sibling on the left if exists, or ascends the tree until an ancestor
-    /// with a left sibling is found and returns that sibling. (Note: "pibling" as in parent's
-    /// sibling)
-    pub fn left_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
+    /// Tries to return the left sibling if exists, or ascends the tree until an ancestor with a
+    /// left sibling is found and returns that sibling.
+    pub fn left_maybe_ascend(&mut self) -> Option<&Node<L>> {
         loop {
             if self.left_sibling().is_some() {
                 return Some(&self.cur_node);
@@ -270,7 +269,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         }
     }
 
-    pub fn right_sibling_or_pibling(&mut self) -> Option<&Node<L>> {
+    pub fn right_maybe_ascend(&mut self) -> Option<&Node<L>> {
         loop {
             if self.right_sibling().is_some() {
                 return Some(&self.cur_node);
@@ -341,7 +340,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         match status {
             FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.next_node().and_then(|n| n.leaf()), // must unwrap
+            FindStatus::HitTrue => self.next_leaf(), // must unwrap
         }
     }
 
@@ -412,7 +411,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         match status {
             FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.prev_node().and_then(|n| n.leaf()), // must unwrap
+            FindStatus::HitTrue => self.prev_leaf(), // must unwrap
         }
     }
 
@@ -480,7 +479,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         match status {
             FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.next_node().and_then(|n| n.leaf()), // must unwrap
+            FindStatus::HitTrue => self.next_leaf(), // must unwrap
         }
     }
 
@@ -564,7 +563,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 
         match status {
             FindStatus::HitRoot => None,
-            FindStatus::HitTrue => self.prev_node().and_then(|n| n.leaf()), // must unwrap
+            FindStatus::HitTrue => self.prev_leaf(), // must unwrap
         }
     }
 
@@ -573,15 +572,15 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// If there is no next element, it returns `None` and cursor resets to root.
     pub fn next_node(&mut self) -> Option<&Node<L>> {
         let height = self.height();
-        if self.right_sibling_or_pibling().is_some() {
+        if self.right_maybe_ascend().is_some() {
             let height = height.unwrap();
             while self.cur_node.height() > height {
                 let _res = self.descend_first();
                 debug_assert!(_res.is_some());
             }
-            return Some(&self.cur_node);
+            Some(&self.cur_node)
         } else {
-            return None;
+            None
         }
     }
 
@@ -590,15 +589,15 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     /// If there is no previous element, it returns `None` and cursor resets to root.
     pub fn prev_node(&mut self) -> Option<&Node<L>> {
         let height = self.height();
-        if self.left_sibling_or_pibling().is_some() {
+        if self.left_maybe_ascend().is_some() {
             let height = height.unwrap();
             while self.cur_node.height() > height {
                 let _res = self.descend_last();
                 debug_assert!(_res.is_some());
             }
-            return Some(&self.cur_node);
+            Some(&self.cur_node)
         } else {
-            return None;
+            None
         }
     }
 
@@ -688,17 +687,14 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     pub fn remove_node(&mut self) -> Option<Node<L>> {
         match self.take_current() {
             Some(cur_node) => {
-                match self.pop_step() {
-                    Some(mut cstep) => {
-                        let dummy = RC::make_mut(&mut cstep.nodes).remove(cstep.idx).unwrap();
-                        debug_assert!(dummy.is_never());
-                        if cstep.nodes.len() > 0 {
-                            self.fix_current(cstep);
-                        } else {
-                            debug_assert!(self.steps.len() == 0); // should be root
-                        }
+                if let Some(mut cstep) = self.pop_step() {
+                    let dummy = RC::make_mut(&mut cstep.nodes).remove(cstep.idx).unwrap();
+                    debug_assert!(dummy.is_never());
+                    if cstep.nodes.len() > 0 {
+                        self.fix_current(cstep);
+                    } else {
+                        debug_assert!(self.steps.len() == 0); // should be root
                     }
-                    None => (),
                 }
                 Some(cur_node)
             },
@@ -771,12 +767,12 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         return false;
     }
 
-    // Calls `left_sibling_or_pibling` until `predicate` is `true`. Returns `false` if `predicate`
-    // was never true till root (incl.). Calls `left_sibling_or_pibling` atleast once.
+    // Calls `left_maybe_ascend` until `predicate` is `true`. Returns `false` if `predicate` was
+    // never true till root (incl.). Calls `left_maybe_ascend` atleast once.
     fn left_ascend_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
-        while self.left_sibling_or_pibling().is_some() {
+        while self.left_maybe_ascend().is_some() {
             if predicate(self.path_info(), self.cur_node.info()) {
                 return true;
             }
@@ -784,12 +780,12 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         return false;
     }
 
-    // Calls `right_sibling_or_pibling` until `predicate` is `true`. Returns `false` if `predicate`
-    // was never true till root (incl.). Calls `right_sibling_or_pibling` atleast once.
+    // Calls `right_maybe_ascend` until `predicate` is `true`. Returns `false` if `predicate` was
+    // never true till root (incl.). Calls `right_maybe_ascend` atleast once.
     fn right_ascend_till<F>(&mut self, predicate: F) -> bool
         where F: Fn(P, L::Info) -> bool
     {
-        while self.right_sibling_or_pibling().is_some() {
+        while self.right_maybe_ascend().is_some() {
             if predicate(self.path_info(), self.cur_node.info()) {
                 return true;
             }
@@ -936,7 +932,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
         if merged {
             self.fix_current(cstep);
         } else {
-            let _res = self.push_step(cstep);
+            self.push_step(cstep);
         }
     }
 
@@ -975,7 +971,7 @@ impl<L, P> CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
 impl<L, P> FromIterator<L> for CursorMut<L, P> where L: Leaf, P: PathInfo<L::Info> {
     fn from_iter<J: IntoIterator<Item=L>>(iter: J) -> Self {
         let mut curs = CursorMut::new();
-        let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
+        let mut iter = iter.into_iter().map(Node::from_leaf);
 
         loop {
             let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();

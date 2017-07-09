@@ -15,7 +15,7 @@ use std::mem;
 /// stored only in leaf nodes similar to a B+Tree; but unlike B+Trees, there are no direct links
 /// between leaf nodes.
 ///
-/// Note: `Node` uses `Arc` for its CoW capability.
+/// Note: `Node` uses `Arc` for its copy-on-write capability.
 #[derive(Clone)]
 pub enum Node<L: Leaf> {
     #[doc(hidden)]
@@ -138,8 +138,8 @@ impl<L: Leaf> Node<L> {
     pub fn traverse<F>(&self, mut f: F) -> Result<(usize, &Node<L>), TraverseError>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
-        match self {
-            &Node::Internal(ref int) => {
+        match *self {
+            Node::Internal(ref int) => {
                 let n_children = int.nodes.len();
                 for (idx, node) in int.nodes.iter().enumerate() {
                     if f(node.info(), idx, n_children - idx - 1) {
@@ -148,8 +148,8 @@ impl<L: Leaf> Node<L> {
                 }
                 Err(TraverseError::AllFalse)
             }
-            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
-            &Node::Never(_) => unsafe { boom("Never!") },
+            Node::Leaf(_) => Err(TraverseError::IsLeaf),
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -158,8 +158,8 @@ impl<L: Leaf> Node<L> {
     pub fn traverse_rev<F>(&self, mut f: F) -> Result<(usize, &Node<L>), TraverseError>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
-        match self {
-            &Node::Internal(ref int) => {
+        match *self {
+            Node::Internal(ref int) => {
                 let n_children = int.nodes.len();
                 for (idx, node) in int.nodes.iter().enumerate().rev() {
                     if f(node.info(), idx, n_children - idx - 1) {
@@ -168,8 +168,8 @@ impl<L: Leaf> Node<L> {
                 }
                 Err(TraverseError::AllFalse)
             }
-            &Node::Leaf(_) => Err(TraverseError::IsLeaf),
-            &Node::Never(_) => unsafe { boom("Never!") },
+            Node::Leaf(_) => Err(TraverseError::IsLeaf),
+            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -239,11 +239,12 @@ impl<L: Leaf> Node<L> {
                         } else {
                             debug_assert_eq!(newnode.height(), h2);
                             let mut newchildren = newnode.into_children_must();
-                            if {
+                            let merged = {
                                 let newchildren = RC::make_mut(&mut newchildren);
                                 mem::swap(newchildren, children2);
                                 balance_maybe_merge(children2, newchildren)
-                            } { // merged into children2
+                            };
+                            if merged {
                                 None
                             } else {
                                 Some(Node::from_children(newchildren))
@@ -281,10 +282,11 @@ impl<L: Leaf> Node<L> {
                         } else {
                             debug_assert_eq!(newnode.height(), h1);
                             let mut newchildren = newnode.into_children_must();
-                            if {
+                            let merged = {
                                 let newchildren = RC::make_mut(&mut newchildren);
                                 balance_maybe_merge(children1, newchildren)
-                            } {
+                            };
+                            if merged {
                                 None
                             } else {
                                 Some(Node::from_children(newchildren))
@@ -302,7 +304,7 @@ impl<L: Leaf> Node<L> {
 /// empty. Use `CursorMut::collect` which not only avoids panicking, but is also more efficient.
 impl<L: Leaf> FromIterator<L> for Node<L> {
     fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
-        let mut iter = iter.into_iter().map(|e| Node::from_leaf(e));
+        let mut iter = iter.into_iter().map(Node::from_leaf);
         let mut root = iter.next().expect("Iterator should not be empty.");
 
         loop {
@@ -383,12 +385,9 @@ pub enum TraverseError {
 impl<L: Leaf> Node<L> {
     // Update leaf value in place.
     pub(crate) fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
-        match self {
-            &mut Node::Leaf(ref mut leaf) => {
-                f(&mut leaf.val);
-                leaf.info = leaf.val.compute_info();
-            },
-            _ => (),
+        if let Node::Leaf(ref mut leaf) = *self {
+            f(&mut leaf.val);
+            leaf.info = leaf.val.compute_info();
         }
     }
 
