@@ -1,6 +1,7 @@
 use ::CVec;
 use base::Node;
 use traits::{Leaf, PathInfo};
+use mines::SliceExt; // for boom_get
 
 use std::fmt;
 
@@ -47,7 +48,7 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     /// Returns a reference to the current node, where the cursor is at.
     pub fn current(&self) -> &'a Node<L> {
         match self.steps.last() {
-            Some(cstep) => &cstep.nodes[cstep.idx],
+            Some(cstep) => unsafe { &cstep.nodes.boom_get(cstep.idx) },
             None => self.root,
         }
     }
