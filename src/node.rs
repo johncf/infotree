@@ -8,6 +8,32 @@ use std::cmp::{self, Ordering};
 use std::iter::FromIterator;
 use std::mem;
 
+pub mod links {
+    use traits::Leaf;
+    use base::Node;
+
+    use std::sync::Arc;
+    use std::rc::Rc;
+    use std::ops::Deref;
+
+    use arrayvec::{Array, ArrayVec};
+
+    pub trait NodesPtr<L: Leaf>: Clone + Deref<Target=[Node<L>]> {
+        type Array: Array<Item=Node<L>>;
+
+        fn new(nodes: ArrayVec<Self::Array>) -> Self;
+        fn make_mut(this: &mut Self) -> &mut ArrayVec<Self::Array>;
+
+        fn max_size() -> usize {
+            <Self::Array as Array>::capacity()
+        }
+    }
+
+    impl_nodes_ptr_rc!(Arc16, Arc, 16);
+    impl_nodes_ptr_rc!(Rc16, Rc, 16);
+    impl_nodes_ptr_box!(Box16, 16);
+}
+
 /// The basic building block of a tree.
 ///
 /// `Node` is similar to a B-Tree node, except that it has the same number of entries and branches

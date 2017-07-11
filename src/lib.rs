@@ -9,18 +9,17 @@ extern crate mines;
 use arrayvec::ArrayVec;
 
 #[macro_use]
-mod debug;
+mod macros;
 
-mod node;
 mod cursor;
 mod cursor_mut;
 mod cursor_nav;
 
+pub mod node;
 pub mod traits;
 
 pub mod base {
     pub use node::Node;
-    pub use node::TraverseError;
     pub use cursor::Cursor;
     pub use cursor_mut::CursorMut;
     pub use cursor_nav::CursorNav;
@@ -30,21 +29,6 @@ pub use cursor_nav::actions;
 
 const MIN_CHILDREN: usize = 8;
 const MAX_CHILDREN: usize = 16;
-
-//trait Mutable: std::ops::Deref {
-//    fn make_mut(this: &mut Self) -> &mut Self::Target;
-//}
-//
-//impl<T> Mutable for Box<T> {
-//    fn make_mut(this: &mut Box<T>) -> &mut T {
-//        &mut *this
-//    }
-//}
-//
-// Uncomment the above block, and RC can be assigned the type Box<T>
-// This gives around 20-40% speedup!
-// Note that `Arc::clone` or `Rc::clone` methods are never used directly (`clone` may be indirectly
-// called by `make_mut` if ref-count > 1).
 
 type RC<T> = std::sync::Arc<T>; // replace with std::rc::Rc<T> to get significant speed-up.
 type NVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
