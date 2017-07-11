@@ -1,7 +1,6 @@
-use ::{NVec, RC};
-use ::{MAX_CHILDREN, MIN_CHILDREN};
 use traits::{Info, Leaf, PathInfo};
 
+use arrayvec::ArrayVec;
 use mines::boom;
 
 use std::cmp::{self, Ordering};
@@ -12,14 +11,14 @@ pub mod links {
     use traits::Leaf;
     use base::Node;
 
+    use arrayvec::{Array, ArrayVec};
+
     use std::sync::Arc;
     use std::rc::Rc;
     use std::ops::Deref;
 
-    use arrayvec::{Array, ArrayVec};
-
-    pub trait NodesPtr<L: Leaf>: Clone + Deref<Target=[Node<L>]> {
-        type Array: Array<Item=Node<L>>;
+    pub trait NodesPtr<L: Leaf>: Clone + Deref<Target=[Node<L, Self>]> {
+        type Array: Array<Item=Node<L, Self>>;
 
         fn new(nodes: ArrayVec<Self::Array>) -> Self;
         fn make_mut(this: &mut Self) -> &mut ArrayVec<Self::Array>;
@@ -29,10 +28,12 @@ pub mod links {
         }
     }
 
-    impl_nodes_ptr_rc!(Arc16, Arc, 16);
-    impl_nodes_ptr_rc!(Rc16, Rc, 16);
-    impl_nodes_ptr_box!(Box16, 16);
+    def_nodes_ptr_rc!(Arc16, Arc, 16);
+    def_nodes_ptr_rc!(Rc16, Rc, 16);
+    def_nodes_ptr_box!(Box16, 16);
 }
+
+use self::links::NodesPtr;
 
 /// The basic building block of a tree.
 ///
@@ -43,9 +44,9 @@ pub mod links {
 ///
 /// Note: `Node` uses `Arc` for its copy-on-write capability.
 #[derive(Clone)]
-pub enum Node<L: Leaf> {
+pub enum Node<L: Leaf, NP> {
     #[doc(hidden)]
-    Internal(InternalVal<L>),
+    Internal(InternalVal<L, NP>),
     #[doc(hidden)]
     Leaf(LeafVal<L>),
     #[doc(hidden)]
@@ -54,10 +55,10 @@ pub enum Node<L: Leaf> {
 
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct InternalVal<L: Leaf> {
+pub struct InternalVal<L: Leaf, NP> {
     info: L::Info,
     height: usize, // > 0
-    nodes: RC<NVec<Node<L>>>,
+    nodes: NP,
 }
 
 #[doc(hidden)]
@@ -71,9 +72,9 @@ pub struct LeafVal<L: Leaf> {
 #[derive(Clone)]
 pub struct NeverVal(());
 
-impl<L: Leaf> Node<L> {
+impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     #[inline]
-    pub fn from_leaf(leaf: L) -> Node<L> {
+    pub fn from_leaf(leaf: L) -> Node<L, NP> {
         Node::Leaf(LeafVal {
                        info: leaf.compute_info(),
                        val: leaf,
@@ -82,7 +83,7 @@ impl<L: Leaf> Node<L> {
 
     /// All nodes should be at the same height, panics otherwise.
     #[inline]
-    pub fn from_children(nodes: RC<NVec<Node<L>>>) -> Node<L> {
+    pub fn from_children(nodes: NP) -> Node<L, NP> {
         let height = nodes[0].height() + 1;
         let mut info = nodes[0].info();
         for child in &nodes[1..] {
@@ -93,7 +94,7 @@ impl<L: Leaf> Node<L> {
     }
 
     /// Tries to unwrap the node into leaf. If node is internal, `Err(self)` is returned.
-    pub fn into_leaf(self) -> Result<L, Node<L>> {
+    pub fn into_leaf(self) -> Result<L, Node<L, NP>> {
         match self {
             Node::Internal(_) => Err(self),
             Node::Leaf(LeafVal { val, .. }) => Ok(val),
@@ -102,7 +103,7 @@ impl<L: Leaf> Node<L> {
     }
 
     /// Tries to unwrap the node into its children. If node is leaf, `Err(self)` is returned.
-    pub fn into_children(self) -> Result<RC<NVec<Node<L>>>, Node<L>> {
+    pub fn into_children(self) -> Result<NP, Node<L, NP>> {
         match self {
             Node::Internal(InternalVal { nodes, .. }) => Ok(nodes),
             Node::Leaf(_) => Err(self),
@@ -138,7 +139,7 @@ impl<L: Leaf> Node<L> {
     /// Get the child nodes of this node. If this is a leaf node, this will return an empty slice.
     ///
     /// Note that internal nodes always contain at least one child node.
-    pub fn children(&self) -> &[Node<L>] {
+    pub fn children(&self) -> &[Node<L, NP>] {
         match *self {
             Node::Internal(ref int) => &*int.nodes,
             Node::Leaf(_) => &[],
@@ -161,7 +162,7 @@ impl<L: Leaf> Node<L> {
     /// The three arguments to `f` are respectively: child node info, zero-based position from
     /// left, and the remaining number of children (total - position - 1).
     #[inline]
-    pub fn traverse<F>(&self, mut f: F) -> Result<(usize, &Node<L>), TraverseError>
+    pub fn traverse<F>(&self, mut f: F) -> Result<(usize, &Node<L, NP>), TraverseError>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
         match *self {
@@ -181,7 +182,7 @@ impl<L: Leaf> Node<L> {
 
     /// Same as `traverse` but in reverse order.
     #[inline]
-    pub fn traverse_rev<F>(&self, mut f: F) -> Result<(usize, &Node<L>), TraverseError>
+    pub fn traverse_rev<F>(&self, mut f: F) -> Result<(usize, &Node<L, NP>), TraverseError>
         where F: FnMut(L::Info, usize, usize) -> bool
     {
         match *self {
@@ -201,9 +202,9 @@ impl<L: Leaf> Node<L> {
 
     /// Similar to `traverse` with an extra argument for `f` which starts with `first`, and for
     /// each child, `PathInfo::extend`-s it with the child's info.
-    pub fn path_traverse<P, F>(&self, first: P, mut f: F) -> Result<(usize, P, &Node<L>), TraverseError>
-        where P: PathInfo<L::Info>,
-              F: FnMut(P, L::Info, usize, usize) -> bool
+    pub fn path_traverse<PI, F>(&self, first: PI, mut f: F) -> Result<(usize, PI, &Node<L, NP>), TraverseError>
+        where PI: PathInfo<L::Info>,
+              F: FnMut(PI, L::Info, usize, usize) -> bool
     {
         let mut path_info = first;
         self.traverse(|node_info, pos, rem| {
@@ -218,9 +219,9 @@ impl<L: Leaf> Node<L> {
     /// Same as `path_traverse` but in reverse order. (`first` is initially extended with this
     /// node's info, and for each child, `PathInfo::extend_inv`-s it with child's info. Thus `f`
     /// will be called with `first` at the end, if `extend_inv` is correctly implemented.)
-    pub fn path_traverse_rev<P, F>(&self, first: P, mut f: F) -> Result<(usize, P, &Node<L>), TraverseError>
-        where P: PathInfo<L::Info>,
-              F: FnMut(P, L::Info, usize, usize) -> bool
+    pub fn path_traverse_rev<PI, F>(&self, first: PI, mut f: F) -> Result<(usize, PI, &Node<L, NP>), TraverseError>
+        where PI: PathInfo<L::Info>,
+              F: FnMut(PI, L::Info, usize, usize) -> bool
     {
         let mut path_info = first.extend(self.info());
         self.traverse_rev(|node_info, pos, rem| {
@@ -230,7 +231,7 @@ impl<L: Leaf> Node<L> {
     }
 
     /// Concatenates two nodes of possibly different heights into a single balanced node.
-    pub fn concat(node1: Node<L>, node2: Node<L>) -> Node<L> {
+    pub fn concat(node1: Node<L, NP>, node2: Node<L, NP>) -> Node<L, NP> {
         let (node1, maybe_node2) = Node::maybe_concat(node1, node2);
         if let Some(node2) = maybe_node2 {
             Node::merge_two(node1, node2)
@@ -242,7 +243,7 @@ impl<L: Leaf> Node<L> {
     /// Concatenates two nodes of possibly different heights into a single balanced node if the
     /// resulting height does not exceed the maximum height among the original nodes. Otherwise,
     /// splits them into two nodes of the same height.
-    pub fn maybe_concat(node1: Node<L>, node2: Node<L>) -> (Node<L>, Option<Node<L>>) {
+    pub fn maybe_concat(node1: Node<L, NP>, node2: Node<L, NP>) -> (Node<L, NP>, Option<Node<L, NP>>) {
         // This is an optimized version of the following code:
         // https://github.com/google/xi-editor/blob/cbec578/rust/rope/src/tree.rs#L276-L318
         // The originally adapted code (around 3x slower) is probably much easier to read and
@@ -255,7 +256,7 @@ impl<L: Leaf> Node<L> {
             Ordering::Less => {
                 let mut children2 = node2.into_children_must();
                 let maybe_newnode = {
-                    let children2 = RC::make_mut(&mut children2);
+                    let children2 = NP::make_mut(&mut children2);
                     if h1 == h2 - 1 && node1.has_min_size() {
                         insert_maybe_split(children2, 0, node1)
                     } else {
@@ -266,9 +267,9 @@ impl<L: Leaf> Node<L> {
                             debug_assert_eq!(newnode.height(), h2);
                             let mut newchildren = newnode.into_children_must();
                             let merged = {
-                                let newchildren = RC::make_mut(&mut newchildren);
+                                let newchildren = NP::make_mut(&mut newchildren);
                                 mem::swap(newchildren, children2);
-                                balance_maybe_merge(children2, newchildren)
+                                balance_maybe_merge::<_, NP>(children2, newchildren)
                             };
                             if merged {
                                 None
@@ -286,7 +287,7 @@ impl<L: Leaf> Node<L> {
                 } else {
                     let mut children1 = node1.into_children_must();
                     let mut children2 = node2.into_children_must();
-                    if balance_maybe_merge(RC::make_mut(&mut children1), RC::make_mut(&mut children2)) {
+                    if balance_maybe_merge::<_, NP>(NP::make_mut(&mut children1), NP::make_mut(&mut children2)) {
                         (Node::from_children(children1), None)
                     } else {
                         (Node::from_children(children1), Some(Node::from_children(children2)))
@@ -297,7 +298,7 @@ impl<L: Leaf> Node<L> {
                 let mut children1 = node1.into_children_must();
                 let maybe_newnode = {
                     let len1 = children1.len();
-                    let children1 = RC::make_mut(&mut children1);
+                    let children1 = NP::make_mut(&mut children1);
                     if h2 == h1 - 1 && node2.has_min_size() {
                         insert_maybe_split(children1, len1, node2)
                     } else {
@@ -309,8 +310,8 @@ impl<L: Leaf> Node<L> {
                             debug_assert_eq!(newnode.height(), h1);
                             let mut newchildren = newnode.into_children_must();
                             let merged = {
-                                let newchildren = RC::make_mut(&mut newchildren);
-                                balance_maybe_merge(children1, newchildren)
+                                let newchildren = NP::make_mut(&mut newchildren);
+                                balance_maybe_merge::<_, NP>(children1, newchildren)
                             };
                             if merged {
                                 None
@@ -328,15 +329,15 @@ impl<L: Leaf> Node<L> {
 
 /// This implementation is for testing and benchmarking purposes. This panics if the iterator is
 /// empty. Use `CursorMut::collect` which not only avoids panicking, but is also more efficient.
-impl<L: Leaf> FromIterator<L> for Node<L> {
+impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
     fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
         let mut iter = iter.into_iter().map(Node::from_leaf);
         let mut root = iter.next().expect("Iterator should not be empty.");
 
         loop {
-            let nodes: NVec<_> = iter.by_ref().take(MAX_CHILDREN).collect();
+            let nodes: ArrayVec<NP::Array> = iter.by_ref().take(NP::max_size()).collect();
             if nodes.len() > 0 {
-                let node = Node::from_children(RC::new(nodes));
+                let node = Node::from_children(NP::new(nodes));
                 root = Node::concat(root, node);
             } else {
                 break;
@@ -346,29 +347,29 @@ impl<L: Leaf> FromIterator<L> for Node<L> {
     }
 }
 
-fn balanced_split(total: usize) -> (usize, usize) {
-    debug_assert!(MAX_CHILDREN <= total && total <= 2*MAX_CHILDREN);
+fn balanced_split<L: Leaf, NP: NodesPtr<L>>(total: usize) -> (usize, usize) {
+    debug_assert!(NP::max_size() <= total && total <= 2*NP::max_size());
     // Make left heavy. Splitting at midpoint is another option
-    let n_left = cmp::min(total - MIN_CHILDREN, MAX_CHILDREN);
+    let n_left = cmp::min(total - NP::max_size()/2, NP::max_size());
     let n_right = total - n_left;
-    debug_assert!(MIN_CHILDREN <= n_left && n_left <= MAX_CHILDREN);
-    debug_assert!(MIN_CHILDREN <= n_right && n_right <= MAX_CHILDREN);
+    debug_assert!(NP::max_size()/2 <= n_left && n_left <= NP::max_size());
+    debug_assert!(NP::max_size()/2 <= n_right && n_right <= NP::max_size());
     (n_left, n_right)
 }
 
 // Tries to merge two lists of nodes into one (returns true), otherwise balances the lists so that
-// both of them have at least MIN_CHILDREN nodes (returns false).
-pub(crate) fn balance_maybe_merge<L: Leaf>(
-    children1: &mut NVec<Node<L>>, children2: &mut NVec<Node<L>>
+// both of them have at least NP::max_size()/2 nodes (returns false).
+pub(crate) fn balance_maybe_merge<L: Leaf, NP: NodesPtr<L>>(
+    children1: &mut ArrayVec<NP::Array>, children2: &mut ArrayVec<NP::Array>
 ) -> bool {
     let (len1, len2) = (children1.len(), children2.len());
-    if len1 + len2 <= MAX_CHILDREN {
+    if len1 + len2 <= NP::max_size() {
         children1.extend(children2.drain(..));
         true
-    } else if len1 < MIN_CHILDREN || len2 < MIN_CHILDREN {
-        let (newlen1, newlen2) = balanced_split(len1 + len2);
+    } else if len1 < NP::max_size()/2 || len2 < NP::max_size()/2 {
+        let (newlen1, newlen2) = balanced_split::<L, NP>(len1 + len2);
         if len1 > len2 {
-            let mut tmp_children2 = NVec::new();
+            let mut tmp_children2 = ArrayVec::<NP::Array>::new();
             tmp_children2.extend(children1.drain(newlen1..));
             tmp_children2.extend(children2.drain(..));
             mem::swap(children2, &mut tmp_children2);
@@ -384,22 +385,22 @@ pub(crate) fn balance_maybe_merge<L: Leaf>(
 
 // Inserts newnode into the list of nodes at the specified position. If the list overflows, splits
 // the list into two and returns a new node created from right half of the split.
-pub(crate) fn insert_maybe_split<L: Leaf>(
-    nodes: &mut NVec<Node<L>>,
+pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
+    nodes: &mut ArrayVec<NP::Array>,
     idx: usize,
-    newnode: Node<L>
-) -> Option<Node<L>> {
-    if nodes.len() < MAX_CHILDREN {
+    newnode: Node<L, NP>
+) -> Option<Node<L, NP>> {
+    if nodes.len() < NP::max_size() {
         let _res = nodes.insert(idx, newnode);
         debug_assert!(_res.is_none());
         None
     } else {
         let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
-        let n_left = balanced_split(MAX_CHILDREN + 1).0;
-        let mut after: NVec<_> = nodes.drain(n_left + 1..).collect();
+        let n_left = balanced_split::<L, NP>(NP::max_size() + 1).0;
+        let mut after: ArrayVec<NP::Array> = nodes.drain(n_left + 1..).collect();
         let _res = after.push(extra);
         debug_assert!(_res.is_none());
-        Some(Node::from_children(RC::new(after)))
+        Some(Node::from_children(NP::new(after)))
     }
 }
 
@@ -408,7 +409,7 @@ pub enum TraverseError {
     IsLeaf,
 }
 
-impl<L: Leaf> Node<L> {
+impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     // Update leaf value in place.
     pub(crate) fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
         if let Node::Leaf(ref mut leaf) = *self {
@@ -417,15 +418,15 @@ impl<L: Leaf> Node<L> {
         }
     }
 
-    pub(crate) fn children_mut_must(&mut self) -> &mut NVec<Node<L>> {
+    pub(crate) fn children_mut_must(&mut self) -> &mut ArrayVec<NP::Array> {
         match *self {
-            Node::Internal(ref mut int) => RC::make_mut(&mut int.nodes),
+            Node::Internal(ref mut int) => NP::make_mut(&mut int.nodes),
             Node::Leaf(_) => unreachable!("buggy children_mut_must call"),
             Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
-    pub(crate) fn into_children_must(self) -> RC<NVec<Node<L>>> {
+    pub(crate) fn into_children_must(self) -> NP {
         match self.into_children() {
             Ok(nodes) => nodes,
             Err(_) => unreachable!("buggy into_children_must call"),
@@ -434,32 +435,32 @@ impl<L: Leaf> Node<L> {
 
     pub(crate) fn has_min_size(&self) -> bool {
         match *self {
-            Node::Internal(ref int) => int.nodes.len() >= MIN_CHILDREN,
+            Node::Internal(ref int) => int.nodes.len() >= NP::max_size()/2,
             Node::Leaf(_) => true,
             Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
-    pub(crate) fn never_take(&mut self) -> Node<L> {
+    pub(crate) fn never_take(&mut self) -> Node<L, NP> {
         let node = mem::replace(self, Node::never());
         debug_assert!(!node.is_never());
         node
     }
 
     // Swaps `self` with `node`. Exactly one of the nodes being swapped must be a never node.
-    pub(crate) fn never_swap(&mut self, other: &mut Node<L>) {
+    pub(crate) fn never_swap(&mut self, other: &mut Node<L, NP>) {
         debug_assert_eq!(self.is_never(), !other.is_never());
         mem::swap(self, other);
     }
 
-    pub(crate) fn merge_two(node1: Node<L>, node2: Node<L>) -> Node<L> {
-        let mut nodes = NVec::new();
+    pub(crate) fn merge_two(node1: Node<L, NP>, node2: Node<L, NP>) -> Node<L, NP> {
+        let mut nodes = ArrayVec::new();
         nodes.push(node1);
         nodes.push(node2);
-        Node::from_children(RC::new(nodes))
+        Node::from_children(NP::new(nodes))
     }
 
-    pub(crate) fn never() -> Node<L> {
+    pub(crate) fn never() -> Node<L, NP> {
         Node::Never(NeverVal(()))
     }
 
