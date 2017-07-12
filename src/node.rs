@@ -37,12 +37,10 @@ pub use self::links::{NodesPtr, Arc16, Rc16, Box16};
 
 /// The basic building block of a tree.
 ///
-/// `Node` is similar to a B-Tree node, except that it has the same number of entries and branches
+/// `Node` is similar to a B-Tree node, except that it has equal number of entries and branches
 /// (as opposed to k elements and k+1 branches in B-Trees). Another difference is that data is
 /// stored only in leaf nodes similar to a B+Tree; but unlike B+Trees, there are no direct links
 /// between leaf nodes.
-///
-/// Note: `Node` uses `Arc` for its copy-on-write capability.
 #[derive(Clone)]
 pub enum Node<L: Leaf, NP> {
     #[doc(hidden)]
@@ -242,7 +240,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 
     /// Concatenates two nodes of possibly different heights into a single balanced node if the
     /// resulting height does not exceed the maximum height among the original nodes. Otherwise,
-    /// splits them into two nodes of the same height.
+    /// splits them into two nodes of equal height.
     pub fn maybe_concat(node1: Node<L, NP>, node2: Node<L, NP>) -> (Node<L, NP>, Option<Node<L, NP>>) {
         // This is an optimized version of the following code:
         // https://github.com/google/xi-editor/blob/cbec578/rust/rope/src/tree.rs#L276-L318

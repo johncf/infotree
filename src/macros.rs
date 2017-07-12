@@ -1,3 +1,5 @@
+#![allow(unused_macros)]
+
 macro_rules! def_nodes_ptr_rc {
     ($wrap:tt, $rc:tt, $size:expr) => {
         #[derive(Clone)]
@@ -53,7 +55,6 @@ macro_rules! def_nodes_ptr_box {
 }
 
 #[cfg(test)]
-#[macro_export]
 macro_rules! testln {
     ($fmt:expr) => {
         println!(concat!("DBG[{}:{}]: ", $fmt), file!(), line!())
@@ -64,7 +65,6 @@ macro_rules! testln {
 }
 
 #[cfg(not(test))]
-#[macro_export]
 macro_rules! testln {
     ($fmt:expr) => ();
     ($fmt:expr, $($arg:tt)*) => ();

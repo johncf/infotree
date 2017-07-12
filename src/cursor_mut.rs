@@ -1,5 +1,4 @@
-use ::CVec;
-use base::CursorNav;
+use ::{CursorNav, CVec};
 use traits::{Leaf, PathInfo};
 use node::{Node, NodesPtr, insert_maybe_split, balance_maybe_merge};
 
@@ -48,7 +47,7 @@ impl<L, NP, PI> CursorMutStep<L, NP, PI>
 impl<L, NP, PI> fmt::Debug for CursorMutStep<L, NP, PI>
     where L: Leaf,
           NP: NodesPtr<L>,
-          PI: PathInfo<L::Info> + fmt::Debug,
+          PI: fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CursorMutStep {{ nodes.len: {}, idx: {}, path_info: {:?} }}",
@@ -286,17 +285,18 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
           PI: PathInfo<L::Info>,
 {
     /// Insert `leaf` before or after the current node. If currently not at a leaf node, the cursor
-    /// first descends to a leaf node (first leaf node if `after == false`, or last leaf node), and
-    /// inserts it before or after it.
+    /// first descends to a leaf node (to the first leaf node if `!after`, or the last leaf node),
+    /// and inserts it per `after`.
     ///
     /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
-    /// `path_info` will not decrease (or `extend_inv`). The user should ensure that the cursor is
-    /// at the intended location after this.
+    /// `path_info` will not decrease (i.e. get `extend_inv`-ed). The user should ensure that the
+    /// cursor is at the intended location after this.
     pub fn insert_leaf(&mut self, leaf: L, after: bool) {
         self.insert(Node::from_leaf(leaf), after);
     }
 
-    /// Insert `node` before or after the current node and rebalance. `node` can be of any height.
+    /// Insert `newnode` before or after the current node and rebalance. `newnode` can be of any
+    /// height.
     pub fn insert(&mut self, newnode: Node<L, NP>, after: bool) {
         let newnode_ht = newnode.height();
         match self.height() {
@@ -588,7 +588,7 @@ impl<L, NP, PI> FromIterator<L> for CursorMut<L, NP, PI>
 
 #[cfg(test)]
 mod tests {
-    use ::base::CursorNav;
+    use ::CursorNav;
     use ::test_help::*;
 
     type CursorMut<L, PI> = super::CursorMut<L, ::node::Rc16<L>, PI>;
