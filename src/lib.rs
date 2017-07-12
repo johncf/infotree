@@ -12,7 +12,7 @@ use arrayvec::ArrayVec;
 mod macros;
 
 mod cursor;
-//mod cursor_mut;
+mod cursor_mut;
 mod cursor_nav;
 
 pub mod node;
@@ -21,17 +21,11 @@ pub mod traits;
 pub mod base {
     pub use node::Node;
     pub use cursor::Cursor;
-    //pub use cursor_mut::CursorMut;
+    pub use cursor_mut::CursorMut;
     pub use cursor_nav::CursorNav;
 }
 
 pub use cursor_nav::actions;
-
-const MIN_CHILDREN: usize = 8;
-const MAX_CHILDREN: usize = 16;
-
-type RC<T> = std::sync::Arc<T>; // replace with std::rc::Rc<T> to get significant speed-up.
-type NVec<T> = ArrayVec<[T; MAX_CHILDREN]>;
 
 // Maximum height of tree that can be handled by cursor types.
 const CURSOR_MAX_HT: usize = 8;
