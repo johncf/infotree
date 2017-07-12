@@ -1,19 +1,19 @@
 #![feature(test)]
 
-// A set of totally unscientific and unfair benchmarks!
-
 extern crate test;
 extern crate infotree;
 
-use infotree::base::{CursorMut, CursorNav};
+use infotree::CursorNav;
+use infotree::node::Rc16;
 use infotree::traits::Leaf;
+
+type CursorMut<L> = infotree::CursorMut<L, Rc16<L>, ()>;
 
 use test::Bencher;
 
-use std::collections::LinkedList;
 use std::collections::BTreeSet;
 
-const TOTAL: usize = 4096;
+const TOTAL: usize = 8192;
 
 #[derive(Clone)]
 struct TestLeaf(usize);
@@ -28,34 +28,50 @@ fn btreeset_insert_remove(b: &mut Bencher) {
     let mut tree = (1..TOTAL).collect::<BTreeSet<_>>();
     b.iter(|| {
         tree.insert(0);
-        tree.remove(&0);
+        tree.remove(&0)
     })
 }
 
 #[bench]
-fn linkedlist_push_pop(b: &mut Bencher) {
-    let mut ll = (1..TOTAL).collect::<LinkedList<_>>();
-    b.iter(|| {
-        ll.push_front(0);
-        ll.pop_front();
-    })
-}
-
-#[bench]
-fn cursormut_insert_remove(b: &mut Bencher) {
-    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_, ()>>();
+fn cm_insert_remove_local(b: &mut Bencher) {
+    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_>>();
     cm.reset();
+    cm.first_leaf();
     b.iter(|| {
         cm.insert_leaf(TestLeaf(0), false);
-        cm.remove_leaf();
+        cm.remove_leaf()
     })
 }
 
 #[bench]
-fn vec_insert_remove(b: &mut Bencher) {
-    let mut vec = (1..TOTAL).collect::<Vec<_>>();
+fn cm_insert_remove_reset(b: &mut Bencher) {
+    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_>>();
     b.iter(|| {
-        vec.insert(0, 0);
-        vec.remove(0);
+        cm.reset();
+        cm.insert_leaf(TestLeaf(0), false);
+        cm.remove_leaf()
+    })
+}
+
+#[bench]
+fn cm_insert_remove_local_cloned(b: &mut Bencher) {
+    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_>>();
+    cm.reset();
+    cm.first_leaf();
+    b.iter(|| {
+        let mut cm = cm.clone();
+        cm.insert_leaf(TestLeaf(0), false);
+        cm.remove_leaf()
+    })
+}
+
+#[bench]
+fn cm_insert_remove_root_cloned(b: &mut Bencher) {
+    let mut cm = (1..TOTAL).map(|e| TestLeaf(e)).collect::<CursorMut<_>>();
+    cm.reset();
+    b.iter(|| {
+        let mut cm = cm.clone();
+        cm.insert_leaf(TestLeaf(0), false);
+        cm.remove_leaf()
     })
 }
