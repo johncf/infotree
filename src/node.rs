@@ -7,9 +7,9 @@ use std::cmp::{self, Ordering};
 use std::iter::FromIterator;
 use std::mem;
 
-pub mod links {
+mod links {
     use traits::Leaf;
-    use base::Node;
+    use super::Node;
 
     use arrayvec::{Array, ArrayVec};
 
@@ -33,7 +33,7 @@ pub mod links {
     def_nodes_ptr_box!(Box16, 16);
 }
 
-use self::links::NodesPtr;
+pub use self::links::{NodesPtr, Arc16, Rc16, Box16};
 
 /// The basic building block of a tree.
 ///
@@ -475,23 +475,22 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 
 #[cfg(test)]
 mod tests {
-    use ::base::Node;
     use ::test_help::*;
 
     #[test]
     fn concat() {
-        let node = Node::from_leaf(ListLeaf(1));
+        let node = NodeRc::from_leaf(ListLeaf(1));
         assert_eq!(node.height(), 0);
         assert_eq!(node.info(), ListInfo { count: 1, sum: 1 });
-        let mut node = Node::concat(node, Node::from_leaf(ListLeaf(2)));
+        let mut node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(2)));
         assert_eq!(node.height(), 1);
         assert_eq!(node.info(), ListInfo { count: 2, sum: 3 });
         for i in 3..17 {
-            node = Node::concat(node, Node::from_leaf(ListLeaf(i)));
+            node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
         }
         assert_eq!(node.height(), 1);
         assert_eq!(node.info(), ListInfo { count: 16, sum: 8 * 17 });
-        let node = Node::concat(node, Node::from_leaf(ListLeaf(17)));
+        let node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(17)));
         assert_eq!(node.height(), 2);
         assert_eq!(node.info(), ListInfo { count: 17, sum: 9 * 17 });
     }

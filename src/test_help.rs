@@ -1,4 +1,5 @@
 use base::Cursor;
+use node::{Node, Rc16};
 use traits::{Info, Leaf, PathInfo, SubOrd};
 
 use std::cmp;
@@ -8,7 +9,10 @@ pub fn rand_usize(max: usize) -> usize {
 }
 
 /// A useful type alias for easy initialization of `Cursor`.
-pub type CursorT<'a, L> = Cursor<'a, L, ()>;
+pub type CursorT<'a, L> = Cursor<'a, L, Rc16<L>, ()>;
+
+/// A useful type alias for easy initialization of `Node`.
+pub type NodeRc<L> = Node<L, Rc16<L>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListLeaf(pub usize);

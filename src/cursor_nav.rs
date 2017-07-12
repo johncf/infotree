@@ -1,9 +1,11 @@
-use base::Node;
+use node::Node;
 use traits::{Leaf, PathInfo, SubOrd};
 use actions::{NodeAction, LeafAction};
+use node::NodesPtr;
 
 pub trait CursorNav: Sized {
     type Leaf: Leaf;
+    type NodesPtr: NodesPtr<Self::Leaf>;
     type PathInfo: PathInfo<<Self::Leaf as Leaf>::Info>;
 
     /// Returns whether the cursor is currently at the root of the tree.
@@ -18,16 +20,16 @@ pub trait CursorNav: Sized {
     #[doc(hidden)]
     fn _height(&self) -> Option<usize>;
     #[doc(hidden)]
-    fn _current(&self) -> Option<&Node<Self::Leaf>>;
+    fn _current(&self) -> Option<&Node<Self::Leaf, Self::NodesPtr>>;
     #[doc(hidden)]
-    fn _current_must(&self) -> &Node<Self::Leaf>;
+    fn _current_must(&self) -> &Node<Self::Leaf, Self::NodesPtr>;
 
     fn reset(&mut self);
-    fn ascend(&mut self) -> Option<&Node<Self::Leaf>>;
-    fn descend_first(&mut self) -> Option<&Node<Self::Leaf>>;
-    fn descend_last(&mut self) -> Option<&Node<Self::Leaf>>;
-    fn left_sibling(&mut self) -> Option<&Node<Self::Leaf>>;
-    fn right_sibling(&mut self) -> Option<&Node<Self::Leaf>>;
+    fn ascend(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>>;
+    fn descend_first(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>>;
+    fn descend_last(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>>;
+    fn left_sibling(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>>;
+    fn right_sibling(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>>;
 
     fn first_leaf(&mut self) -> Option<&Self::Leaf> {
         while self.descend_first().is_some() {}
@@ -42,7 +44,7 @@ pub trait CursorNav: Sized {
     /// Make the cursor point to the next element at the same height.
     ///
     /// If there is no next element, it returns `None` and cursor resets to root.
-    fn next_node(&mut self) -> Option<&Node<Self::Leaf>> {
+    fn next_node(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>> {
         let height = self._height();
         if self.right_maybe_ascend().is_some() {
             let height = height.unwrap();
@@ -59,7 +61,7 @@ pub trait CursorNav: Sized {
     /// Make the cursor point to the previous element at the same height.
     ///
     /// If there is no previous element, it returns `None` and cursor resets to root.
-    fn prev_node(&mut self) -> Option<&Node<Self::Leaf>> {
+    fn prev_node(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>> {
         let height = self._height();
         if self.left_maybe_ascend().is_some() {
             let height = height.unwrap();
@@ -85,7 +87,7 @@ pub trait CursorNav: Sized {
 
     /// Tries to return the left sibling if exists, or ascends the tree until an ancestor with a
     /// left sibling is found and returns that sibling.
-    fn left_maybe_ascend(&mut self) -> Option<&Node<Self::Leaf>> {
+    fn left_maybe_ascend(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>> {
         loop {
             if self.left_sibling().is_some() {
                 return Some(self._current_must());
@@ -97,7 +99,7 @@ pub trait CursorNav: Sized {
 
     /// Tries to return the right sibling if exists, or ascends the tree until an ancestor with a
     /// right sibling is found and returns that sibling.
-    fn right_maybe_ascend(&mut self) -> Option<&Node<Self::Leaf>> {
+    fn right_maybe_ascend(&mut self) -> Option<&Node<Self::Leaf, Self::NodesPtr>> {
         loop {
             if self.right_sibling().is_some() {
                 return Some(self._current_must());
@@ -315,7 +317,7 @@ pub mod actions {
     use super::{CursorNav, Node};
 
     pub trait NodeAction {
-        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf>>;
+        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf, C::NodesPtr>>;
     }
 
     pub trait LeafAction {
@@ -324,42 +326,42 @@ pub mod actions {
 
     pub enum LeftSibling {}
     impl NodeAction for LeftSibling {
-        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf>> {
+        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf, C::NodesPtr>> {
             cursor.left_sibling()
         }
     }
 
     pub enum RightSibling {}
     impl NodeAction for RightSibling {
-        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf>> {
+        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf, C::NodesPtr>> {
             cursor.right_sibling()
         }
     }
 
     pub enum LeftMaybeAscend {}
     impl NodeAction for LeftMaybeAscend {
-        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf>> {
+        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf, C::NodesPtr>> {
             cursor.left_maybe_ascend()
         }
     }
 
     pub enum RightMaybeAscend {}
     impl NodeAction for RightMaybeAscend {
-        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf>> {
+        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf, C::NodesPtr>> {
             cursor.right_maybe_ascend()
         }
     }
 
     pub enum DescendFirst {}
     impl NodeAction for DescendFirst {
-        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf>> {
+        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf, C::NodesPtr>> {
             cursor.descend_first()
         }
     }
 
     pub enum DescendLast {}
     impl NodeAction for DescendLast {
-        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf>> {
+        fn act_on<C: CursorNav>(cursor: &mut C) -> Option<&Node<C::Leaf, C::NodesPtr>> {
             cursor.descend_last()
         }
     }

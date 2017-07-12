@@ -1,8 +1,8 @@
 use ::{CVec, NVec, RC};
 use ::{MAX_CHILDREN, MIN_CHILDREN};
-use base::{CursorNav, Node};
+use base::CursorNav;
 use traits::{Leaf, PathInfo};
-use node::{insert_maybe_split, balance_maybe_merge};
+use node::{Node, insert_maybe_split, balance_maybe_merge};
 
 use std::fmt;
 use std::iter::FromIterator;

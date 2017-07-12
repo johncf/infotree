@@ -1,5 +1,6 @@
 use ::CVec;
-use base::{CursorNav, Node};
+use base::CursorNav;
+use node::{Node, NodesPtr};
 use traits::{Leaf, PathInfo};
 use mines::SliceExt; // for boom_get
 
@@ -10,30 +11,38 @@ use std::fmt;
 /// `Cursor` is very lightweight. All operations are done entirely using stack memory -- no
 /// heap allocations are made at any point.
 ///
-/// Note: `Cursor` takes more than 200B on stack (exact size depends on the size of `P`)
+/// Note: `Cursor` takes more than 200B on stack (exact size mainly depends on the size of `PI`)
 #[derive(Clone)]
-pub struct Cursor<'a, L: Leaf + 'a, P> {
-    root: &'a Node<L>,
-    steps: CVec<CursorStep<'a, L, P>>,
+pub struct Cursor<'a, L: Leaf + 'a, NP: 'a, PI> {
+    root: &'a Node<L, NP>,
+    steps: CVec<CursorStep<'a, L, NP, PI>>,
 }
 
 #[derive(Clone)]
-struct CursorStep<'a, L: Leaf + 'a, P> {
-    nodes: &'a [Node<L>],
+struct CursorStep<'a, L: Leaf + 'a, NP: 'a, PI> {
+    nodes: &'a [Node<L, NP>],
     idx: usize, // index at which cursor descended
-    path_info: P,
+    path_info: PI,
 }
 
-impl<'a, L, P> fmt::Debug for CursorStep<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> + fmt::Debug {
+impl<'a, L, NP, PI> fmt::Debug for CursorStep<'a, L, NP, PI>
+    where L: Leaf + 'a,
+          NP: NodesPtr<L> + 'a,
+          PI: PathInfo<L::Info> + fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CursorStep {{ nodes.len: {}, idx: {}, path_info: {:?} }}",
                   self.nodes.len(), self.idx, self.path_info)
     }
 }
 
-impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
+impl<'a, L, NP, PI> Cursor<'a, L, NP, PI>
+    where L: Leaf + 'a,
+          NP: NodesPtr<L> + 'a,
+          PI: PathInfo<L::Info>,
+{
     /// Create a new cursor from a root node.
-    pub fn new(node: &Node<L>) -> Cursor<L, P> {
+    pub fn new(node: &Node<L, NP>) -> Cursor<L, NP, PI> {
         Cursor {
             root: node,
             steps: CVec::new(),
@@ -41,12 +50,12 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     }
 
     /// Returns a reference to the root node.
-    pub fn root(&self) -> &'a Node<L> {
+    pub fn root(&self) -> &'a Node<L, NP> {
         self.root
     }
 
     /// Returns a reference to the current node, where the cursor is at.
-    pub fn current(&self) -> &'a Node<L> {
+    pub fn current(&self) -> &'a Node<L, NP> {
         match self.steps.last() {
             Some(cstep) => unsafe { &cstep.nodes.boom_get(cstep.idx) },
             None => self.root,
@@ -72,8 +81,8 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     /// Panics if tree depth is greater than 8.
     ///
     /// [`Node::path_traverse`]: ../enum.Node.html#method.path_traverse
-    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&'a Node<L>>
-        where F: FnMut(P, L::Info, usize, usize) -> bool
+    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&'a Node<L, NP>>
+        where F: FnMut(PI, L::Info, usize, usize) -> bool
     {
         let cur_node = self.current();
         let res = if reversed {
@@ -91,25 +100,34 @@ impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
     }
 }
 
-impl<'a, L, P> Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
-    fn descend_raw(&mut self, nodes: &'a [Node<L>], idx: usize, path_info: P) {
+impl<'a, L, NP, PI> Cursor<'a, L, NP, PI>
+    where L: Leaf + 'a,
+          NP: NodesPtr<L> + 'a,
+          PI: PathInfo<L::Info>,
+{
+    fn descend_raw(&mut self, nodes: &'a [Node<L, NP>], idx: usize, path_info: PI) {
         // ArrayVec::push(e) returns Some(e) on overflow!
         assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
     }
 }
 
-impl<'a, L, P> CursorNav for Cursor<'a, L, P> where L: Leaf, P: PathInfo<L::Info> {
+impl<'a, L, NP, PI> CursorNav for Cursor<'a, L, NP, PI>
+    where L: Leaf + 'a,
+          NP: NodesPtr<L> + 'a,
+          PI: PathInfo<L::Info>,
+{
     type Leaf = L;
-    type PathInfo = P;
+    type NodesPtr = NP;
+    type PathInfo = PI;
 
     fn is_root(&self) -> bool {
         self.steps.len() == 0
     }
 
-    fn path_info(&self) -> P {
+    fn path_info(&self) -> PI {
         match self.steps.last() {
             Some(cstep) => cstep.path_info,
-            None => P::identity(),
+            None => PI::identity(),
         }
     }
 
@@ -124,12 +142,12 @@ impl<'a, L, P> CursorNav for Cursor<'a, L, P> where L: Leaf, P: PathInfo<L::Info
     }
 
     #[doc(hidden)]
-    fn _current(&self) -> Option<&Node<L>> {
+    fn _current(&self) -> Option<&Node<L, NP>> {
         Some(self.current())
     }
 
     #[doc(hidden)]
-    fn _current_must(&self) -> &Node<L> {
+    fn _current_must(&self) -> &Node<L, NP> {
         self.current()
     }
 
@@ -137,19 +155,19 @@ impl<'a, L, P> CursorNav for Cursor<'a, L, P> where L: Leaf, P: PathInfo<L::Info
         self.steps.clear();
     }
 
-    fn ascend(&mut self) -> Option<&Node<L>> {
+    fn ascend(&mut self) -> Option<&Node<L, NP>> {
         self.steps.pop().map(|cstep| &cstep.nodes[cstep.idx])
     }
 
-    fn descend_first(&mut self) -> Option<&Node<L>> {
+    fn descend_first(&mut self) -> Option<&Node<L, NP>> {
         self.descend_by(|_, _, _, _| true, false)
     }
 
-    fn descend_last(&mut self) -> Option<&Node<L>> {
+    fn descend_last(&mut self) -> Option<&Node<L, NP>> {
         self.descend_by(|_, _, _, _| true, true)
     }
 
-    fn left_sibling(&mut self) -> Option<&Node<L>> {
+    fn left_sibling(&mut self) -> Option<&Node<L, NP>> {
         let &mut Cursor { ref root, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CursorStep { nodes, ref mut idx, ref mut path_info }) => {
@@ -165,7 +183,7 @@ impl<'a, L, P> CursorNav for Cursor<'a, L, P> where L: Leaf, P: PathInfo<L::Info
         }
     }
 
-    fn right_sibling(&mut self) -> Option<&Node<L>> {
+    fn right_sibling(&mut self) -> Option<&Node<L, NP>> {
         let &mut Cursor { ref root, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CursorStep { nodes, ref mut idx, ref mut path_info }) => {
@@ -182,11 +200,15 @@ impl<'a, L, P> CursorNav for Cursor<'a, L, P> where L: Leaf, P: PathInfo<L::Info
     }
 }
 
-impl<'a, L, P> IntoIterator for Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
-    type IntoIter = LeafIter<'a, L, P>;
+impl<'a, L, NP, PI> IntoIterator for Cursor<'a, L, NP, PI>
+    where L: Leaf + 'a,
+          NP: NodesPtr<L> + 'a,
+          PI: PathInfo<L::Info>,
+{
+    type IntoIter = LeafIter<'a, L, NP, PI>;
     type Item = &'a L;
 
-    fn into_iter(mut self) -> LeafIter<'a, L, P> {
+    fn into_iter(mut self) -> LeafIter<'a, L, NP, PI> {
         self.reset();
         LeafIter {
             inner: self,
@@ -195,12 +217,16 @@ impl<'a, L, P> IntoIterator for Cursor<'a, L, P> where L: Leaf + 'a, P: PathInfo
     }
 }
 
-pub struct LeafIter<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
-    inner: Cursor<'a, L, P>,
+pub struct LeafIter<'a, L: 'a, NP: 'a, PI> where L: Leaf {
+    inner: Cursor<'a, L, NP, PI>,
     init_done: bool,
 }
 
-impl<'a, L, P> Iterator for LeafIter<'a, L, P> where L: Leaf + 'a, P: PathInfo<L::Info> {
+impl<'a, L, NP, PI> Iterator for LeafIter<'a, L, NP, PI>
+    where L: Leaf + 'a,
+          NP: NodesPtr<L> + 'a,
+          PI: PathInfo<L::Info>,
+{
     type Item = &'a L;
     fn next(&mut self) -> Option<&'a L> {
         if !self.init_done {
@@ -216,12 +242,12 @@ impl<'a, L, P> Iterator for LeafIter<'a, L, P> where L: Leaf + 'a, P: PathInfo<L
 
 #[cfg(test)]
 mod tests {
-    use ::base::{Cursor, CursorNav, Node};
+    use ::base::{Cursor, CursorNav};
     use ::test_help::*;
 
     #[test]
     fn leaf_traversal() {
-        let tree: Node<_> = (1..21).map(|i| ListLeaf(i)).collect();
+        let tree: NodeRc<_> = (1..21).map(|i| ListLeaf(i)).collect();
         let mut leaf_iter = CursorT::new(&tree).into_iter();
         for i in 1..21 {
             assert_eq!(leaf_iter.next(), Some(&ListLeaf(i)));
@@ -237,8 +263,8 @@ mod tests {
 
     #[test]
     fn path_extend() {
-        let tree: Node<_> = (1..21).map(|i| ListLeaf(i)).collect();
-        let mut cursor = Cursor::<_, ListPath>::new(&tree);
+        let tree: NodeRc<_> = (1..21).map(|i| ListLeaf(i)).collect();
+        let mut cursor = Cursor::<_, _, ListPath>::new(&tree);
         assert_eq!(cursor.first_leaf().unwrap(), &ListLeaf(1));
         assert_eq!(cursor.path_info(), ListPath { index: 0, run: 0 });
         cursor.reset();
