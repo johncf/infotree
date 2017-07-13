@@ -6,6 +6,7 @@ extern crate test;
 extern crate infotree;
 
 use infotree::cursor::CursorMut;
+use infotree::cursor::conf::{Arc33M, Rc33M, Box33M};
 use infotree::node::{Node, Arc16, Rc16, Box16};
 use infotree::traits::Leaf;
 
@@ -13,9 +14,9 @@ type NodeArc<L> = Node<L, Arc16<L>>;
 type NodeRc<L> = Node<L, Rc16<L>>;
 type NodeBox<L> = Node<L, Box16<L>>;
 
-type CursorMutArc<L> = CursorMut<L, Arc16<L>, ()>;
-type CursorMutRc<L> = CursorMut<L, Rc16<L>, ()>;
-type CursorMutBox<L> = CursorMut<L, Box16<L>, ()>;
+type CursorMutArc<L> = CursorMut<L, (), Arc33M>;
+type CursorMutRc<L> = CursorMut<L, (), Rc33M>;
+type CursorMutBox<L> = CursorMut<L, (), Box33M>;
 
 use test::Bencher;
 

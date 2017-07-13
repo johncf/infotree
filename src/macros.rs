@@ -54,6 +54,21 @@ macro_rules! def_nodes_ptr_box {
     }
 }
 
+macro_rules! def_cursor_conf {
+    ($wrap:tt, $ptr:tt, $buf:expr) => {
+        pub enum $wrap {}
+        impl<L: Leaf> PtrMark<L> for $wrap {
+            type Ptr = $ptr<L>;
+        }
+        impl<'a, L: Leaf + 'a, PI> CConf<'a, L, PI> for $wrap {
+            type StepsBuf = [CStep<'a, L, PI, Self>; $buf];
+        }
+        impl<L: Leaf, PI> CMutConf<L, PI> for $wrap {
+            type MutStepsBuf = [CMutStep<L, PI, Self>; $buf];
+        }
+    }
+}
+
 #[cfg(test)]
 macro_rules! testln {
     ($fmt:expr) => {

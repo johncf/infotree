@@ -14,7 +14,6 @@ use std::fmt;
 /// heap allocations are made at any point.
 ///
 /// Note: `Cursor` takes more than 200B on stack (exact size mainly depends on the size of `PI`)
-#[derive(Clone)]
 pub struct Cursor<'a, L, PI, CONF = Rc33M>
     where L: Leaf + 'a,
           CONF: CConf<'a, L, PI>,
@@ -24,7 +23,6 @@ pub struct Cursor<'a, L, PI, CONF = Rc33M>
     steps: ArrayVec<CONF::StepsBuf>,
 }
 
-#[derive(Clone)]
 pub struct CStep<'a, L, PI, CONF>
     where L: Leaf + 'a,
           CONF: CConf<'a, L, PI>,
@@ -33,6 +31,35 @@ pub struct CStep<'a, L, PI, CONF>
     nodes: &'a [Node<L, CONF::Ptr>],
     idx: usize, // index at which cursor descended
     path_info: PI,
+}
+
+impl<'a, L, PI, CONF> Clone for Cursor<'a, L, PI, CONF>
+    where L: Leaf + Clone + 'a,
+          PI: PathInfo<L::Info>,
+          CONF: CConf<'a, L, PI>,
+          CONF::Ptr: 'a,
+{
+    fn clone(&self) -> Self {
+        Cursor {
+            root: self.root,
+            steps: self.steps.clone(),
+        }
+    }
+}
+
+impl<'a, L, PI, CONF> Clone for CStep<'a, L, PI, CONF>
+    where L: Leaf + Clone + 'a,
+          PI: PathInfo<L::Info>,
+          CONF: CConf<'a, L, PI>,
+          CONF::Ptr: 'a,
+{
+    fn clone(&self) -> Self {
+        CStep {
+            nodes: self.nodes,
+            idx: self.idx,
+            path_info: self.path_info.clone(),
+        }
+    }
 }
 
 impl<'a, L, PI, CONF> fmt::Debug for CStep<'a, L, PI, CONF>

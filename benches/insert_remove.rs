@@ -3,11 +3,10 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::cursor::CursorNav;
-use infotree::node::Rc16;
+use infotree::cursor::{self, CursorNav};
 use infotree::traits::Leaf;
 
-type CursorMut<L> = infotree::cursor::CursorMut<L, Rc16<L>, ()>;
+type CursorMut<L> = cursor::CursorMut<L, ()>;
 
 use test::Bencher;
 

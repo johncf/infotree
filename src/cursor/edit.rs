@@ -20,7 +20,6 @@ use arrayvec::ArrayVec;
 /// that node is more than one.
 ///
 /// Note: `CursorMut` takes more than 200B on stack (exact size mainly depends on the size of `PI`)
-#[derive(Clone)]
 pub struct CursorMut<L, PI, CONF = Rc33M>
     where L: Leaf,
           CONF: CMutConf<L, PI>,
@@ -29,7 +28,6 @@ pub struct CursorMut<L, PI, CONF = Rc33M>
     steps: ArrayVec<CONF::MutStepsBuf>,
 }
 
-#[derive(Clone)]
 pub struct CMutStep<L, PI, CONF>
     where L: Leaf,
           CONF: CMutConf<L, PI>,
@@ -38,6 +36,34 @@ pub struct CMutStep<L, PI, CONF>
     idx: usize,
     path_info: PI,
     __phantom: PhantomData<L>,
+}
+
+impl<L, PI, CONF> Clone for CursorMut<L, PI, CONF>
+    where L: Leaf + Clone,
+          PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
+{
+    fn clone(&self) -> Self {
+        CursorMut {
+            cur_node: self.cur_node.clone(),
+            steps: self.steps.clone(),
+        }
+    }
+}
+
+impl<L, PI, CONF> Clone for CMutStep<L, PI, CONF>
+    where L: Leaf + Clone,
+          PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
+{
+    fn clone(&self) -> Self {
+        CMutStep {
+            nodes: self.nodes.clone(),
+            idx: self.idx,
+            path_info: self.path_info.clone(),
+            __phantom: PhantomData,
+        }
+    }
 }
 
 impl<L, PI, CONF> CMutStep<L, PI, CONF>
