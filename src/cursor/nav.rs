@@ -1,7 +1,7 @@
 use node::Node;
 use traits::{Leaf, PathInfo, SubOrd};
-use actions::{NodeAction, LeafAction};
 use node::NodesPtr;
+use self::actions::{NodeAction, LeafAction};
 
 pub trait CursorNav: Sized {
     type Leaf: Leaf;

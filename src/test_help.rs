@@ -1,4 +1,4 @@
-use ::{Cursor, CursorMut};
+use cursor::{Cursor, CursorMut};
 use node::{Node, Rc16};
 use traits::{Info, Leaf, PathInfo, SubOrd};
 

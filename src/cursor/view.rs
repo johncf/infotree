@@ -1,4 +1,4 @@
-use ::{CursorNav, CVec};
+use super::{CursorNav, CVec};
 use node::{Node, NodesPtr};
 use traits::{Leaf, PathInfo};
 use mines::SliceExt; // for boom_get
@@ -241,8 +241,8 @@ impl<'a, L, NP, PI> Iterator for LeafIter<'a, L, NP, PI>
 
 #[cfg(test)]
 mod tests {
-    use ::{Cursor, CursorNav};
-    use ::test_help::*;
+    use cursor::{Cursor, CursorNav};
+    use test_help::*;
 
     #[test]
     fn leaf_traversal() {

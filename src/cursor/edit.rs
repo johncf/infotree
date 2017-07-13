@@ -1,4 +1,4 @@
-use ::{CursorNav, CVec};
+use super::{CursorNav, CVec};
 use traits::{Leaf, PathInfo};
 use node::{Node, NodesPtr, insert_maybe_split, balance_maybe_merge};
 
@@ -588,8 +588,8 @@ impl<L, NP, PI> FromIterator<L> for CursorMut<L, NP, PI>
 
 #[cfg(test)]
 mod tests {
-    use ::CursorNav;
-    use ::test_help::*;
+    use cursor::CursorNav;
+    use test_help::*;
 
     type CursorMut<L, PI> = super::CursorMut<L, ::node::Rc16<L>, PI>;
 

@@ -5,7 +5,7 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::CursorMut;
+use infotree::cursor::CursorMut;
 use infotree::node::{Node, Arc16, Rc16, Box16};
 use infotree::traits::Leaf;
 
