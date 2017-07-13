@@ -14,23 +14,23 @@ use std::fmt;
 #[derive(Clone)]
 pub struct Cursor<'a, L: Leaf + 'a, NP: 'a, PI> {
     root: &'a Node<L, NP>,
-    steps: CVec<CursorStep<'a, L, NP, PI>>,
+    steps: CVec<CStep<'a, L, NP, PI>>,
 }
 
 #[derive(Clone)]
-struct CursorStep<'a, L: Leaf + 'a, NP: 'a, PI> {
+struct CStep<'a, L: Leaf + 'a, NP: 'a, PI> {
     nodes: &'a [Node<L, NP>],
     idx: usize, // index at which cursor descended
     path_info: PI,
 }
 
-impl<'a, L, NP, PI> fmt::Debug for CursorStep<'a, L, NP, PI>
+impl<'a, L, NP, PI> fmt::Debug for CStep<'a, L, NP, PI>
     where L: Leaf + 'a,
           NP: NodesPtr<L> + 'a,
           PI: PathInfo<L::Info> + fmt::Debug,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "CursorStep {{ nodes.len: {}, idx: {}, path_info: {:?} }}",
+        write!(f, "CStep {{ nodes.len: {}, idx: {}, path_info: {:?} }}",
                   self.nodes.len(), self.idx, self.path_info)
     }
 }
@@ -106,7 +106,7 @@ impl<'a, L, NP, PI> Cursor<'a, L, NP, PI>
 {
     fn descend_raw(&mut self, nodes: &'a [Node<L, NP>], idx: usize, path_info: PI) {
         // ArrayVec::push(e) returns Some(e) on overflow!
-        assert!(self.steps.push(CursorStep { nodes, idx, path_info }).is_none());
+        assert!(self.steps.push(CStep { nodes, idx, path_info }).is_none());
     }
 }
 
@@ -169,7 +169,7 @@ impl<'a, L, NP, PI> CursorNav for Cursor<'a, L, NP, PI>
     fn left_sibling(&mut self) -> Option<&Node<L, NP>> {
         let &mut Cursor { ref root, ref mut steps } = self;
         match steps.last_mut() {
-            Some(&mut CursorStep { nodes, ref mut idx, ref mut path_info }) => {
+            Some(&mut CStep { nodes, ref mut idx, ref mut path_info }) => {
                 if *idx > 0 {
                     *idx -= 1;
                     *path_info = path_info.extend_inv(nodes[*idx].info());
@@ -185,7 +185,7 @@ impl<'a, L, NP, PI> CursorNav for Cursor<'a, L, NP, PI>
     fn right_sibling(&mut self) -> Option<&Node<L, NP>> {
         let &mut Cursor { ref root, ref mut steps } = self;
         match steps.last_mut() {
-            Some(&mut CursorStep { nodes, ref mut idx, ref mut path_info }) => {
+            Some(&mut CStep { nodes, ref mut idx, ref mut path_info }) => {
                 if *idx + 1 < nodes.len() {
                     *path_info = path_info.extend(nodes[*idx].info());
                     *idx += 1;
