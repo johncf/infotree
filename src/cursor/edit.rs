@@ -1,4 +1,5 @@
-use super::{CursorNav, CVec};
+use super::CursorNav;
+use super::conf::{CMutConf, Rc33M};
 use traits::{Leaf, PathInfo};
 use node::{Node, NodesPtr, insert_maybe_split, balance_maybe_merge};
 
@@ -20,34 +21,40 @@ use arrayvec::ArrayVec;
 ///
 /// Note: `CursorMut` takes more than 200B on stack (exact size mainly depends on the size of `PI`)
 #[derive(Clone)]
-pub struct CursorMut<L: Leaf, NP: NodesPtr<L>, PI> {
-    cur_node: Node<L, NP>,
-    steps: CVec<CMutStep<L, NP, PI>>,
+pub struct CursorMut<L, PI, CONF = Rc33M>
+    where L: Leaf,
+          CONF: CMutConf<L, PI>,
+{
+    cur_node: Node<L, CONF::Ptr>,
+    steps: ArrayVec<CONF::MutStepsBuf>,
 }
 
 #[derive(Clone)]
-struct CMutStep<L: Leaf, NP: NodesPtr<L>, PI> {
-    nodes: NP,
+pub struct CMutStep<L, PI, CONF>
+    where L: Leaf,
+          CONF: CMutConf<L, PI>,
+{
+    nodes: CONF::Ptr,
     idx: usize,
     path_info: PI,
     __phantom: PhantomData<L>,
 }
 
-impl<L, NP, PI> CMutStep<L, NP, PI>
+impl<L, PI, CONF> CMutStep<L, PI, CONF>
     where L: Leaf,
-          NP: NodesPtr<L>,
           PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
 {
-    fn new(nodes: NP, idx: usize, path_info: PI) -> CMutStep<L, NP, PI> {
+    fn new(nodes: CONF::Ptr, idx: usize, path_info: PI) -> Self {
         let __phantom = PhantomData;
         CMutStep { nodes, idx, path_info, __phantom }
     }
 }
 
-impl<L, NP, PI> fmt::Debug for CMutStep<L, NP, PI>
+impl<L, PI, CONF> fmt::Debug for CMutStep<L, PI, CONF>
     where L: Leaf,
-          NP: NodesPtr<L>,
           PI: fmt::Debug,
+          CONF: CMutConf<L, PI>,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CMutStep {{ nodes.len: {}, idx: {}, path_info: {:?} }}",
@@ -55,31 +62,31 @@ impl<L, NP, PI> fmt::Debug for CMutStep<L, NP, PI>
     }
 }
 
-impl<L, NP, PI> CursorMut<L, NP, PI>
+impl<L, PI, CONF> CursorMut<L, PI, CONF>
     where L: Leaf,
-          NP: NodesPtr<L>,
           PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
 {
-    pub fn new() -> CursorMut<L, NP, PI> {
+    pub fn new() -> Self {
         CursorMut {
             cur_node: Node::never(),
-            steps: CVec::new(),
+            steps: ArrayVec::new(),
         }
     }
 
-    pub fn from_node(node: Node<L, NP>) -> CursorMut<L, NP, PI> {
+    pub fn from_node(node: Node<L, CONF::Ptr>) -> Self {
         CursorMut {
             cur_node: node,
-            steps: CVec::new(),
+            steps: ArrayVec::new(),
         }
     }
 
-    pub fn into_root(mut self) -> Option<Node<L, NP>> {
+    pub fn into_root(mut self) -> Option<Node<L, CONF::Ptr>> {
         self.reset();
         self.take_current()
     }
 
-    pub fn current(&self) -> Option<&Node<L, NP>> {
+    pub fn current(&self) -> Option<&Node<L, CONF::Ptr>> {
         match self.cur_node {
             Node::Never(_) => None,
             ref node => Some(node),
@@ -140,7 +147,7 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     /// Panics if tree depth is greater than 8.
     ///
     /// [`Node::path_traverse`]: ../enum.Node.html#method.path_traverse
-    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&Node<L, NP>>
+    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&Node<L, CONF::Ptr>>
         where F: FnMut(PI, L::Info, usize, usize) -> bool
     {
         match self.take_current() {
@@ -168,13 +175,13 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     }
 }
 
-impl<L, NP, PI> CursorNav for CursorMut<L, NP, PI>
+impl<L, PI, CONF> CursorNav for CursorMut<L, PI, CONF>
     where L: Leaf,
-          NP: NodesPtr<L>,
           PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
 {
     type Leaf = L;
-    type NodesPtr = NP;
+    type NodesPtr = CONF::Ptr;
     type PathInfo = PI;
 
     /// Returns `true` even if the cursor is empty.
@@ -200,12 +207,12 @@ impl<L, NP, PI> CursorNav for CursorMut<L, NP, PI>
     }
 
     #[doc(hidden)]
-    fn _current(&self) -> Option<&Node<L, NP>> {
+    fn _current(&self) -> Option<&Node<L, CONF::Ptr>> {
         self.current()
     }
 
     #[doc(hidden)]
-    fn _current_must(&self) -> &Node<L, NP> {
+    fn _current_must(&self) -> &Node<L, CONF::Ptr> {
         // Calling this is unsafe unless the current node is guaranteed to not be `Never`.
         &self.cur_node
     }
@@ -214,7 +221,7 @@ impl<L, NP, PI> CursorNav for CursorMut<L, NP, PI>
         while self.ascend().is_some() {}
     }
 
-    fn ascend(&mut self) -> Option<&Node<L, NP>> {
+    fn ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         match self.pop_step() {
             Some(CMutStep { nodes, idx, .. }) => {
                 self.ascend_raw(nodes, idx);
@@ -226,21 +233,21 @@ impl<L, NP, PI> CursorNav for CursorMut<L, NP, PI>
         }
     }
 
-    fn descend_first(&mut self) -> Option<&Node<L, NP>> {
+    fn descend_first(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         self.descend_by(|_, _, _, _| true, false)
     }
 
-    fn descend_last(&mut self) -> Option<&Node<L, NP>> {
+    fn descend_last(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         self.descend_by(|_, _, _, _| true, true)
     }
 
-    fn left_sibling(&mut self) -> Option<&Node<L, NP>> {
+    fn left_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CMutStep { ref mut nodes, ref mut idx, ref mut path_info, .. }) => {
                 debug_assert!(!cur_node.is_never());
                 if *idx > 0 {
-                    let nodes = NP::make_mut(nodes);
+                    let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
                     cur_node.never_swap(&mut nodes[*idx]);
                     *idx -= 1;
                     cur_node.never_swap(&mut nodes[*idx]);
@@ -255,7 +262,7 @@ impl<L, NP, PI> CursorNav for CursorMut<L, NP, PI>
         }
     }
 
-    fn right_sibling(&mut self) -> Option<&Node<L, NP>> {
+    fn right_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CMutStep { ref mut nodes, ref mut idx, ref mut path_info, .. }) => {
@@ -263,7 +270,7 @@ impl<L, NP, PI> CursorNav for CursorMut<L, NP, PI>
                 if *idx + 1 < nodes.len() {
                     *path_info = path_info.extend(cur_node.info());
 
-                    let nodes = NP::make_mut(nodes);
+                    let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
                     cur_node.never_swap(&mut nodes[*idx]);
                     *idx += 1;
                     cur_node.never_swap(&mut nodes[*idx]);
@@ -279,10 +286,10 @@ impl<L, NP, PI> CursorNav for CursorMut<L, NP, PI>
 }
 
 // structural modifications
-impl<L, NP, PI> CursorMut<L, NP, PI>
+impl<L, PI, CONF> CursorMut<L, PI, CONF>
     where L: Leaf,
-          NP: NodesPtr<L>,
           PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
 {
     /// Insert `leaf` before or after the current node. If currently not at a leaf node, the cursor
     /// first descends to a leaf node (to the first leaf node if `!after`, or the last leaf node),
@@ -297,7 +304,7 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
 
     /// Insert `newnode` before or after the current node and rebalance. `newnode` can be of any
     /// height.
-    pub fn insert(&mut self, newnode: Node<L, NP>, after: bool) {
+    pub fn insert(&mut self, newnode: Node<L, CONF::Ptr>, after: bool) {
         let newnode_ht = newnode.height();
         match self.height() {
             Some(cur_ht) if cur_ht >= newnode_ht => {
@@ -328,16 +335,18 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
                 break;
             }
 
-            let nodes = NP::make_mut(&mut nodes);
+            let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes);
             let len = nodes.len();
 
             if idx + 1 < len {
-                let right = Node::from_children(NP::new(nodes.drain(idx+1..).collect()));
+                let right = Node::from_children(
+                                <CONF::Ptr as NodesPtr<L>>::new(nodes.drain(idx+1..).collect()));
                 current = Node::concat(current, right);
             }
 
             if idx > 0 {
-                let left = Node::from_children(NP::new(nodes.drain(0..idx).collect()));
+                let left = Node::from_children(
+                               <CONF::Ptr as NodesPtr<L>>::new(nodes.drain(0..idx).collect()));
                 current = Node::concat(left, current);
             }
         }
@@ -355,11 +364,13 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     /// It is unspecified where the cursor will be after this operation. But it is guaranteed that
     /// `path_info` will not increase (or `extend`). The user should ensure that the cursor is at
     /// the correct location after this.
-    pub fn remove_node(&mut self) -> Option<Node<L, NP>> {
+    pub fn remove_node(&mut self) -> Option<Node<L, CONF::Ptr>> {
         match self.take_current() {
             Some(cur_node) => {
                 if let Some(mut cstep) = self.pop_step() {
-                    let dummy = NP::make_mut(&mut cstep.nodes).remove(cstep.idx).unwrap();
+                    let dummy = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut cstep.nodes)
+                                    .remove(cstep.idx)
+                                    .unwrap();
                     debug_assert!(dummy.is_never());
                     if cstep.nodes.len() > 0 {
                         self.fix_current(cstep);
@@ -379,7 +390,7 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     /// Returns `None` if the cursor was empty.
     ///
     /// Time: O(log n)
-    pub fn split_off(&mut self) -> Option<Node<L, NP>> {
+    pub fn split_off(&mut self) -> Option<Node<L, CONF::Ptr>> {
         if self.is_empty() {
             return None;
         }
@@ -390,10 +401,12 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
         // of nodes being concated differ only by 1 (amortized).
         while let Some(CMutStep { mut nodes, idx, .. }) = self.pop_step() {
             { // mutate nodes
-                let nodes = NP::make_mut(&mut nodes);
-                let right_nodes: ArrayVec<NP::Array> = nodes.drain(idx + 1 ..).collect();
+                let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes);
+                let right_nodes = nodes.drain(idx + 1 ..)
+                                       .collect::<ArrayVec<<CONF::Ptr as NodesPtr<L>>::Array>>();
                 if right_nodes.len() > 0 {
-                    ret = Node::concat(ret, Node::from_children(NP::new(right_nodes)));
+                    ret = Node::concat(ret, Node::from_children(
+                                                <CONF::Ptr as NodesPtr<L>>::new(right_nodes)));
                 }
                 nodes.pop(); // pop the never node at idx
             }
@@ -411,12 +424,12 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     }
 }
 
-impl<L, NP, PI> CursorMut<L, NP, PI>
+impl<L, PI, CONF> CursorMut<L, PI, CONF>
     where L: Leaf,
-          NP: NodesPtr<L>,
           PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
 {
-    fn insert_simple(&mut self, mut newnode: Node<L, NP>, mut after: bool) {
+    fn insert_simple(&mut self, mut newnode: Node<L, CONF::Ptr>, mut after: bool) {
         if self.is_empty() {
             self.cur_node = newnode;
             return;
@@ -428,7 +441,7 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
             match steps.last_mut() {
                 Some(&mut CMutStep { ref mut nodes, ref mut idx, ref mut path_info, .. }) => {
                     let maybe_split = {
-                        let nodes = NP::make_mut(nodes);
+                        let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
                         let cur_info = cur_node.info();
                         cur_node.never_swap(&mut nodes[*idx]);
                         if after {
@@ -443,7 +456,8 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
                         after = true;
                         // the only way out of match without breaking
                     } else {
-                        cur_node.never_swap(&mut NP::make_mut(nodes)[*idx]);
+                        let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
+                        cur_node.never_swap(&mut nodes[*idx]);
                         break;
                     }
                 }
@@ -465,23 +479,23 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     }
 
     // Find a replacement node for the current node. May ascend the tree multiple times.
-    fn fix_current(&mut self, cstep: CMutStep<L, NP, PI>) {
+    fn fix_current(&mut self, cstep: CMutStep<L, PI, CONF>) {
         debug_assert!(self.cur_node.is_never());
         let CMutStep { mut nodes, mut idx, mut path_info, .. } = cstep;
         let nodes_len = nodes.len();
         debug_assert!(nodes_len > 0); // nodes should never be empty
         let steps_len = self.steps.len();
-        if nodes_len >= NP::max_size()/2 || steps_len == 0 {
+        if nodes_len >= <CONF::Ptr as NodesPtr<L>>::max_size()/2 || steps_len == 0 {
             if idx == nodes_len {
                 idx -= 1;
             }
-            self.cur_node.never_swap(&mut NP::make_mut(&mut nodes)[idx]);
+            self.cur_node.never_swap(&mut <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes)[idx]);
             debug_assert!(self.cur_node.is_leaf() ||
-                          self.cur_node.children().len() >= NP::max_size()/2);
+                          self.cur_node.children().len() >= <CONF::Ptr as NodesPtr<L>>::max_size()/2);
             path_info = path_info.extend_inv(self.cur_node.info());
             self.push_step(CMutStep::new(nodes, idx, path_info));
         } else { // steps_len > 0
-            debug_assert_eq!(nodes_len, NP::max_size()/2 - 1);
+            debug_assert_eq!(nodes_len, <CONF::Ptr as NodesPtr<L>>::max_size()/2 - 1);
             self.cur_node = Node::from_children(nodes);
             self.merge_adjacent();
         }
@@ -490,7 +504,7 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     // Merge the current node with an adjacent sibling to make it balanced.
     fn merge_adjacent(&mut self) {
         debug_assert!(!self.cur_node.is_never());
-        debug_assert_eq!(self.cur_node.children().len(), NP::max_size()/2 - 1);
+        debug_assert_eq!(self.cur_node.children().len(), <CONF::Ptr as NodesPtr<L>>::max_size()/2 - 1);
         let CMutStep { mut nodes, mut idx, mut path_info, .. } = self.pop_step().unwrap();
         if nodes.len() == 1 { // cur_node is the only child
             debug_assert!(self.steps.len() == 0); // the parent must be root
@@ -500,14 +514,16 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
         debug_assert!(nodes.len() > 1);
         let merged;
         {
-            let nodes = NP::make_mut(&mut nodes);
+            let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes);
             merged = if at_right_end {
                 let left_node = nodes.get_mut(idx - 1).unwrap();
                 path_info = path_info.extend_inv(left_node.info());
-                balance_maybe_merge::<_, NP>(left_node.children_mut_must(), self.cur_node.children_mut_must())
+                balance_maybe_merge::<_, CONF::Ptr>(left_node.children_mut_must(),
+                                                    self.cur_node.children_mut_must())
             } else {
                 let right_node = nodes.get_mut(idx + 1).unwrap();
-                balance_maybe_merge::<_, NP>(self.cur_node.children_mut_must(), right_node.children_mut_must())
+                balance_maybe_merge::<_, CONF::Ptr>(self.cur_node.children_mut_must(),
+                                                    right_node.children_mut_must())
             };
             if merged {
                 if !at_right_end {
@@ -532,31 +548,31 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
         }
     }
 
-    fn ascend_raw(&mut self, mut nodes: NP, idx: usize) {
+    fn ascend_raw(&mut self, mut nodes: CONF::Ptr, idx: usize) {
         debug_assert!(!self.cur_node.is_never());
-        self.cur_node.never_swap(&mut NP::make_mut(&mut nodes)[idx]);
+        self.cur_node.never_swap(&mut <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes)[idx]);
         let parent = Node::from_children(nodes); // gather info
         self.cur_node = parent;
     }
 
-    fn descend_raw(&mut self, mut nodes: NP, idx: usize, path_info: PI) {
+    fn descend_raw(&mut self, mut nodes: CONF::Ptr, idx: usize, path_info: PI) {
         debug_assert!(self.cur_node.is_never());
-        self.cur_node.never_swap(&mut NP::make_mut(&mut nodes)[idx]);
+        self.cur_node.never_swap(&mut <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes)[idx]);
         self.push_step(CMutStep::new(nodes, idx, path_info));
     }
 
-    fn push_step(&mut self, cstep: CMutStep<L, NP, PI>) {
+    fn push_step(&mut self, cstep: CMutStep<L, PI, CONF>) {
         //testln!("descended!");
         let _res = self.steps.push(cstep);
         assert!(_res.is_none(), "Exceeded maximum supported depth.");
     }
 
-    fn pop_step(&mut self) -> Option<CMutStep<L, NP, PI>> {
+    fn pop_step(&mut self) -> Option<CMutStep<L, PI, CONF>> {
         //testln!("ascended! (try)");
         self.steps.pop()
     }
 
-    fn take_current(&mut self) -> Option<Node<L, NP>> {
+    fn take_current(&mut self) -> Option<Node<L, CONF::Ptr>> {
         match self.cur_node {
             Node::Never(_) => None,
             ref mut cur_node => Some(cur_node.never_take()),
@@ -564,20 +580,22 @@ impl<L, NP, PI> CursorMut<L, NP, PI>
     }
 }
 
-impl<L, NP, PI> FromIterator<L> for CursorMut<L, NP, PI>
+impl<L, PI, CONF> FromIterator<L> for CursorMut<L, PI, CONF>
     where L: Leaf,
-          NP: NodesPtr<L>,
           PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
 {
     fn from_iter<J: IntoIterator<Item=L>>(iter: J) -> Self {
         let mut curs = CursorMut::new();
         let mut iter = iter.into_iter().map(Node::from_leaf);
 
         loop {
-            let nodes: ArrayVec<NP::Array> = iter.by_ref().take(NP::max_size()).collect();
+            let nodes = iter.by_ref()
+                            .take(<CONF::Ptr as NodesPtr<L>>::max_size())
+                            .collect::<ArrayVec<<CONF::Ptr as NodesPtr<L>>::Array>>();
             if nodes.len() > 0 {
                 // TODO investigate `cursormut_insert` benchmark slowdown (git blame this line)
-                curs.insert(Node::from_children(NP::new(nodes)), true);
+                curs.insert(Node::from_children(<CONF::Ptr as NodesPtr<L>>::new(nodes)), true);
             } else {
                 break;
             }
@@ -591,7 +609,7 @@ mod tests {
     use cursor::CursorNav;
     use test_help::*;
 
-    type CursorMut<L, PI> = super::CursorMut<L, ::node::Rc16<L>, PI>;
+    type CursorMut<L, PI> = super::CursorMut<L, PI>;
 
     #[test]
     fn insert() {

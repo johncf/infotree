@@ -1,4 +1,4 @@
-use cursor::{Cursor};//, CursorMut};
+use cursor::{Cursor, CursorMut};
 use node::{Node, Rc16};
 use traits::{Info, Leaf, PathInfo, SubOrd};
 
@@ -11,7 +11,7 @@ pub fn rand_usize(max: usize) -> usize {
 /// A useful type alias for easy initialization of `Cursor`.
 pub type CursorT<'a, L> = Cursor<'a, L, ()>;
 
-//pub type CursorMutT<L> = CursorMut<L, ()>;
+pub type CursorMutT<L> = CursorMut<L, ()>;
 
 /// A useful type alias for easy initialization of `Node`.
 pub type NodeRc<L> = Node<L, Rc16<L>>;

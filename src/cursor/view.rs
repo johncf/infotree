@@ -1,4 +1,4 @@
-use super::conf::{CConf, PtrMark, Rc33M};
+use super::conf::{CConf, Rc33M};
 use super::CursorNav;
 use node::Node;
 use traits::{Leaf, PathInfo};
@@ -18,7 +18,7 @@ use std::fmt;
 pub struct Cursor<'a, L, PI, CONF = Rc33M>
     where L: Leaf + 'a,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     root: &'a Node<L, CONF::Ptr>,
     steps: ArrayVec<CONF::StepsBuf>,
@@ -28,7 +28,7 @@ pub struct Cursor<'a, L, PI, CONF = Rc33M>
 pub struct CStep<'a, L, PI, CONF>
     where L: Leaf + 'a,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     nodes: &'a [Node<L, CONF::Ptr>],
     idx: usize, // index at which cursor descended
@@ -37,9 +37,9 @@ pub struct CStep<'a, L, PI, CONF>
 
 impl<'a, L, PI, CONF> fmt::Debug for CStep<'a, L, PI, CONF>
     where L: Leaf + 'a,
-          PI: PathInfo<L::Info> + fmt::Debug,
+          PI: fmt::Debug,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "CStep {{ nodes.len: {}, idx: {}, path_info: {:?} }}",
@@ -51,7 +51,7 @@ impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
     where L: Leaf + 'a,
           PI: PathInfo<L::Info>,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     /// Create a new cursor from a root node.
     pub fn new(node: &'a Node<L, CONF::Ptr>) -> Self {
@@ -121,7 +121,7 @@ impl<'a, L, PI, CONF> CursorNav for Cursor<'a, L, PI, CONF>
     where L: Leaf + 'a,
           PI: PathInfo<L::Info>,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     type Leaf = L;
     type NodesPtr = CONF::Ptr;
@@ -211,7 +211,7 @@ impl<'a, L, PI, CONF> IntoIterator for Cursor<'a, L, PI, CONF>
     where L: Leaf + 'a,
           PI: PathInfo<L::Info>,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     type IntoIter = LeafIter<'a, L, PI, CONF>;
     type Item = &'a L;
@@ -228,7 +228,7 @@ impl<'a, L, PI, CONF> IntoIterator for Cursor<'a, L, PI, CONF>
 pub struct LeafIter<'a, L, PI, CONF>
     where L: Leaf + 'a,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     inner: Cursor<'a, L, PI, CONF>,
     init_done: bool,
@@ -238,7 +238,7 @@ impl<'a, L, PI, CONF> Iterator for LeafIter<'a, L, PI, CONF>
     where L: Leaf + 'a,
           PI: PathInfo<L::Info>,
           CONF: CConf<'a, L, PI>,
-          <CONF as PtrMark<L>>::Ptr: 'a,
+          CONF::Ptr: 'a,
 {
     type Item = &'a L;
     fn next(&mut self) -> Option<&'a L> {
