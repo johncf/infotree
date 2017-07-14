@@ -4,6 +4,7 @@ use node::Node;
 use traits::Leaf;
 
 use std::collections::Bound;
+use std::iter::FromIterator;
 
 #[doc(hidden)]
 #[derive(Clone)]
@@ -56,8 +57,18 @@ impl<T, CONF> List<T, CONF>
         self.len_cache
     }
 
-    pub fn insert(&mut self, _index: usize, _element: T) -> Result<(), T> {
-        unimplemented!()
+    pub fn insert(&mut self, index: usize, element: T) -> Result<(), T> {
+        let len = self.len();
+        if index == len {
+            self.push(element);
+        } else if index < len {
+            self.inner.goto_max(index);
+            self.inner.insert_leaf(ListLeaf(element), false);
+        } else {
+            return Err(element);
+        }
+        self.len_cache += 1;
+        Ok(())
     }
 
     pub fn remove(&mut self, _index: usize) -> Result<T, ()> {
@@ -65,17 +76,18 @@ impl<T, CONF> List<T, CONF>
     }
 
     pub fn push(&mut self, element: T) {
-        self.inner.reset();
+        let len = self.len();
+        self.inner.goto_max(len);
         self.inner.insert_leaf(ListLeaf(element), true);
         self.len_cache += 1;
     }
 
     pub fn pop(&mut self) -> Option<T> {
         if self.len_cache > 0 {
+            let len = self.len();
             self.len_cache -= 1;
-            self.inner.reset();
-            self.inner.last_leaf();
-            Some(self.inner.remove_leaf().unwrap().0)
+            self.inner.goto_max(len);
+            Some(self.inner.remove_node().and_then(|n| n.into_leaf().ok()).unwrap().0)
         } else {
             None
         }
@@ -125,6 +137,18 @@ impl<T, CONF> Extend<T> for List<T, CONF>
         where I: IntoIterator<Item=T>
     {
         unimplemented!()
+    }
+}
+
+impl<T, CONF> FromIterator<T> for List<T, CONF>
+    where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
+{
+    fn from_iter<I: IntoIterator<Item=T>>(iter: I) -> Self {
+        let iter = iter.into_iter().map(|e| ListLeaf(e));
+        let mut inner: CursorMut<_, ListIndex, _> = iter.collect();
+        inner.reset();
+        let len_cache = inner.current().map(|n| n.info()).unwrap_or(0);
+        List { inner, len_cache }
     }
 }
 
@@ -210,5 +234,17 @@ impl<'a, T, CONF> DoubleEndedIterator for Iter<'a, T, CONF>
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::List;
+
+    #[test]
+    fn push() {
+        let mut list: List<_> = (0..256).collect();
+        list.push(256);
+        assert_eq!(list.pop(), Some(256));
     }
 }
