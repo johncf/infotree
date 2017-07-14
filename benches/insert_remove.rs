@@ -3,7 +3,7 @@
 extern crate test;
 extern crate infotree;
 
-use infotree::cursor::{self, CursorNav};
+use infotree::cursor;
 use infotree::traits::Leaf;
 
 type CursorMut<L> = cursor::CursorMut<L, ()>;

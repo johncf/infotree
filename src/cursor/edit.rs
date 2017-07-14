@@ -1,6 +1,6 @@
-use super::CursorNav;
 use super::conf::{CMutConf, Rc33M};
-use traits::{Leaf, PathInfo};
+use super::nav::CursorNav;
+use traits::{Leaf, PathInfo, SubOrd};
 use node::{Node, NodesPtr, insert_maybe_split, balance_maybe_merge};
 
 use std::fmt;
@@ -136,6 +136,22 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
         }
     }
 
+    /// Returns whether the cursor is currently at the root of the tree.
+    ///
+    /// Returns `true` even if the cursor is empty.
+    pub fn is_root(&self) -> bool {
+        self.steps.len() == 0
+    }
+
+    /// The cumulative info along the path from root to this node. Returns `PathInfo::identity()`
+    /// if the current node is root or cursor is empty.
+    pub fn path_info(&self) -> PI {
+        match self.steps.last() {
+            Some(cstep) => cstep.path_info,
+            None => PI::identity(),
+        }
+    }
+
     /// Update the leaf value in-place using `f`. This is a no-op if the current node is not a
     /// leaf.
     pub fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
@@ -199,55 +215,12 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
             None => None, // empty cursor
         }
     }
-}
 
-impl<L, PI, CONF> CursorNav for CursorMut<L, PI, CONF>
-    where L: Leaf,
-          PI: PathInfo<L::Info>,
-          CONF: CMutConf<L, PI>,
-{
-    type Leaf = L;
-    type NodesPtr = CONF::Ptr;
-    type PathInfo = PI;
-
-    /// Returns `true` even if the cursor is empty.
-    fn is_root(&self) -> bool {
-        self.steps.len() == 0
-    }
-
-    fn path_info(&self) -> PI {
-        match self.steps.last() {
-            Some(cstep) => cstep.path_info,
-            None => PI::identity(),
-        }
-    }
-
-    #[doc(hidden)]
-    fn _leaf(&self) -> Option<&Self::Leaf> {
-        self.leaf()
-    }
-
-    #[doc(hidden)]
-    fn _height(&self) -> Option<usize> {
-        self.height()
-    }
-
-    #[doc(hidden)]
-    fn _current(&self) -> Option<&Node<L, CONF::Ptr>> {
-        self.current()
-    }
-
-    #[doc(hidden)]
-    fn _current_must(&self) -> &Node<L, CONF::Ptr> {
-        // Calling this is unsafe unless the current node is guaranteed to not be `Never`.
-        &self.cur_node
-    }
-
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         while self.ascend().is_some() {}
     }
 
-    fn ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         match self.pop_step() {
             Some(CMutStep { nodes, idx, .. }) => {
                 self.ascend_raw(nodes, idx);
@@ -259,15 +232,15 @@ impl<L, PI, CONF> CursorNav for CursorMut<L, PI, CONF>
         }
     }
 
-    fn descend_first(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn descend_first(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         self.descend_by(|_, _, _, _| true, false)
     }
 
-    fn descend_last(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn descend_last(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         self.descend_by(|_, _, _, _| true, true)
     }
 
-    fn left_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn left_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CMutStep { ref mut nodes, ref mut idx, ref mut path_info, .. }) => {
@@ -288,7 +261,7 @@ impl<L, PI, CONF> CursorNav for CursorMut<L, PI, CONF>
         }
     }
 
-    fn right_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn right_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
         let &mut CursorMut { ref mut cur_node, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CMutStep { ref mut nodes, ref mut idx, ref mut path_info, .. }) => {
@@ -308,6 +281,206 @@ impl<L, PI, CONF> CursorNav for CursorMut<L, PI, CONF>
             }
             None => None, // at the root
         }
+    }
+
+    pub fn first_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::first_leaf(self)
+    }
+
+    pub fn last_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::last_leaf(self)
+    }
+
+    /// Make the cursor point to the next element at the same height.
+    ///
+    /// If there is no next element, it returns `None` and cursor resets to root.
+    pub fn next_node(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::next_node(self)
+    }
+
+    /// Make the cursor point to the previous element at the same height.
+    ///
+    /// If there is no previous element, it returns `None` and cursor resets to root.
+    pub fn prev_node(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::prev_node(self)
+    }
+
+    /// Calls `next_node` and returns the leaf value if it is a leaf node.
+    pub fn next_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::next_leaf(self)
+    }
+
+    /// Calls `prev_node` and returns the leaf value if it is a leaf node.
+    pub fn prev_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::prev_leaf(self)
+    }
+
+    /// Tries to return the left sibling if exists, or ascends the tree until an ancestor with a
+    /// left sibling is found and returns that sibling.
+    pub fn left_maybe_ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::left_maybe_ascend(self)
+    }
+
+    /// Tries to return the right sibling if exists, or ascends the tree until an ancestor with a
+    /// right sibling is found and returns that sibling.
+    pub fn right_maybe_ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::right_maybe_ascend(self)
+    }
+
+    /// Moves the cursor to the first leaf node which satisfy the following condition:
+    ///
+    /// `info_sub <= node.info()`
+    ///
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
+    ///
+    /// Conditions for correctness:
+    /// - The leaves of the tree must be sorted by the value represented by `info_sub` inside
+    ///   `node.info()` in ascending order.
+    /// - `Leaf::Info::gather` must apply the "min" function on this field.
+    ///
+    /// See `find_max` for examples.
+    ///
+    /// A more descriptive name of this might be `find_sorted_suffix_min`.
+    pub fn find_min<IS>(&mut self, info_sub: IS) -> Option<&L>
+        where IS: SubOrd<L::Info>,
+    {
+        <Self as CursorNav>::find_min(self, info_sub)
+    }
+
+    /// Moves the cursor to the last leaf node which satisfy the following condition:
+    ///
+    /// `info_sub >= node.info()`
+    ///
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
+    ///
+    /// Conditions for correctness is the same as `find_min`, except that `Leaf::Info::gather` must
+    /// apply the "max" function on this field, instead of "min".
+    ///
+    /// Note: If exactly one leaf satisfies equality with `info_sub`, then both `find_max` and
+    /// `find_min` will return the same element. Here are some examples:
+    ///
+    /// ```text
+    /// leaf:     ('c', 2)   ('j', 1)   ('j', 4)   ('v', 2)
+    /// find_min('j') == Some(('j', 1))
+    /// find_max('j') == find_max('k') == Some(('j', 4))
+    /// find_min('k') == find_max('z') == Some(('v', 2))
+    /// find_min('z') == find_max('a') == None
+    /// ```
+    ///
+    /// A more descriptive name of this might be `find_sorted_prefix_max`.
+    pub fn find_max<IS>(&mut self, info_sub: IS) -> Option<&L>
+        where IS: SubOrd<L::Info>,
+    {
+        <Self as CursorNav>::find_max(self, info_sub)
+    }
+
+    /// Moves the cursor to the first leaf node which satisfy the following condition:
+    ///
+    /// `path_info_sub <= path_info`
+    ///
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
+    ///
+    /// Conditions for correctness:
+    /// - `Leaf::Info` should not contain "negative" values so that path-info is non-decreasing when
+    ///   `extend`-ed with `Leaf::Info` values.
+    ///
+    /// See `goto_max` for examples.
+    ///
+    /// A more descriptive name of this might be `goto_path_suffix_min`.
+    pub fn goto_min<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&L> {
+        <Self as CursorNav>::goto_min(self, path_info_sub)
+    }
+
+    /// Moves the cursor to the last leaf node which satisfy the following condition:
+    ///
+    /// `path_info_sub >= path_info.extend(node.info())`
+    ///
+    /// And returns a reference to it. Returns `None` if no leaf satisfied the condition.
+    ///
+    /// Conditions for correctness is the same as `goto_min`.
+    ///
+    /// These methods can be visualized as follows:
+    ///
+    /// ```text
+    /// leaf         :     'a'   'b'   'c'   'd'   'e'
+    /// leaf::info() :      1     1     1     1     1
+    /// path_info    :   0     1     2     3     4     5
+    ///     goto_min(3)                    ^--~  ^--~    = first of ('d', 'e') = Some('d')
+    ///     goto_max(3)     ~--^  ~--^  ~--^         = last of ('a', 'b', 'c') = Some('c')
+    ///     goto_max(0) = None
+    ///     goto_min(5) = goto_min(6) = None
+    ///     goto_max(5) = goto_max(6) = Some('e')
+    ///
+    /// =====
+    ///
+    /// leaf         :     't'   'u'   'v'   'w'   'x'
+    /// leaf::info() :      1     1     0     0     1
+    /// path_info    :   0     1     2     2     2     3
+    ///     goto_min(2)              ^--~  ^--~  ^--~    = first of ('v', 'w', 'x') = Some('v')
+    ///     goto_max(2)     ~--^  ~--^  ~--^  ~--^   = last of ('t', 'u', 'v', 'w') = Some('w')
+    /// ```
+    ///
+    /// A more descriptive name of this might be `goto_path_prefix_max`.
+    pub fn goto_max<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&L> {
+        <Self as CursorNav>::goto_max(self, path_info_sub)
+    }
+}
+
+impl<L, PI, CONF> CursorNav for CursorMut<L, PI, CONF>
+    where L: Leaf,
+          PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
+{
+    type Leaf = L;
+    type NodesPtr = CONF::Ptr;
+    type PathInfo = PI;
+
+    fn _is_root(&self) -> bool {
+        self.is_root()
+    }
+
+    fn _path_info(&self) -> PI {
+        self.path_info()
+    }
+
+    fn _leaf(&self) -> Option<&Self::Leaf> {
+        self.leaf()
+    }
+
+    fn _height(&self) -> Option<usize> {
+        self.height()
+    }
+
+    fn _current(&self) -> Option<&Node<L, CONF::Ptr>> {
+        self.current()
+    }
+
+    fn _current_must(&self) -> &Node<L, CONF::Ptr> {
+        &self.cur_node
+    }
+
+    fn _reset(&mut self) {
+        self.reset();
+    }
+
+    fn _ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.ascend()
+    }
+
+    fn _descend_first(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.descend_first()
+    }
+
+    fn _descend_last(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.descend_last()
+    }
+
+    fn _left_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.left_sibling()
+    }
+
+    fn _right_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.right_sibling()
     }
 }
 
@@ -632,7 +805,6 @@ impl<L, PI, CONF> FromIterator<L> for CursorMut<L, PI, CONF>
 
 #[cfg(test)]
 mod tests {
-    use cursor::CursorNav;
     use test_help::*;
 
     type CursorMut<L, PI> = super::CursorMut<L, PI>;

@@ -1,7 +1,7 @@
 use super::conf::{CConf, Rc33M};
-use super::CursorNav;
+use super::nav::CursorNav;
 use node::Node;
-use traits::{Leaf, PathInfo};
+use traits::{Leaf, PathInfo, SubOrd};
 use mines::SliceExt; // for boom_get
 
 use arrayvec::ArrayVec;
@@ -111,6 +111,20 @@ impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
         self.current().height()
     }
 
+    /// Returns whether the cursor is currently at the root of the tree.
+    pub fn is_root(&self) -> bool {
+        self.steps.len() == 0
+    }
+
+    /// The cumulative info along the path from root to this node. Returns `PathInfo::identity()`
+    /// if the current node is root or cursor is empty.
+    pub fn path_info(&self) -> PI {
+        match self.steps.last() {
+            Some(cstep) => cstep.path_info,
+            None => PI::identity(),
+        }
+    }
+
     /// Descend the tree once, on the child for which `f` returns `true`.
     ///
     /// Returns `None` if cursor is at a leaf node, or if `f` returned `false` on all children.
@@ -142,66 +156,24 @@ impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
         // ArrayVec::push(e) returns Some(e) on overflow!
         assert!(self.steps.push(CStep { nodes, idx, path_info }).is_none());
     }
-}
 
-impl<'a, L, PI, CONF> CursorNav for Cursor<'a, L, PI, CONF>
-    where L: Leaf + 'a,
-          PI: PathInfo<L::Info>,
-          CONF: CConf<'a, L, PI>,
-          CONF::Ptr: 'a,
-{
-    type Leaf = L;
-    type NodesPtr = CONF::Ptr;
-    type PathInfo = PI;
-
-    fn is_root(&self) -> bool {
-        self.steps.len() == 0
-    }
-
-    fn path_info(&self) -> PI {
-        match self.steps.last() {
-            Some(cstep) => cstep.path_info,
-            None => PI::identity(),
-        }
-    }
-
-    #[doc(hidden)]
-    fn _leaf(&self) -> Option<&L> {
-        self.leaf()
-    }
-
-    #[doc(hidden)]
-    fn _height(&self) -> Option<usize> {
-        Some(self.height())
-    }
-
-    #[doc(hidden)]
-    fn _current(&self) -> Option<&Node<L, CONF::Ptr>> {
-        Some(self.current())
-    }
-
-    #[doc(hidden)]
-    fn _current_must(&self) -> &Node<L, CONF::Ptr> {
-        self.current()
-    }
-
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.steps.clear();
     }
 
-    fn ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn ascend(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
         self.steps.pop().map(|cstep| &cstep.nodes[cstep.idx])
     }
 
-    fn descend_first(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn descend_first(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
         self.descend_by(|_, _, _, _| true, false)
     }
 
-    fn descend_last(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn descend_last(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
         self.descend_by(|_, _, _, _| true, true)
     }
 
-    fn left_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn left_sibling(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
         let &mut Cursor { ref root, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CStep { nodes, ref mut idx, ref mut path_info }) => {
@@ -217,7 +189,7 @@ impl<'a, L, PI, CONF> CursorNav for Cursor<'a, L, PI, CONF>
         }
     }
 
-    fn right_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+    pub fn right_sibling(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
         let &mut Cursor { ref root, ref mut steps } = self;
         match steps.last_mut() {
             Some(&mut CStep { nodes, ref mut idx, ref mut path_info }) => {
@@ -231,6 +203,121 @@ impl<'a, L, PI, CONF> CursorNav for Cursor<'a, L, PI, CONF>
             }
             None => None, // at the root
         }
+    }
+
+    pub fn first_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::first_leaf(self)
+    }
+
+    pub fn last_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::last_leaf(self)
+    }
+
+    pub fn next_node(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::next_node(self)
+    }
+
+    pub fn prev_node(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::prev_node(self)
+    }
+
+    pub fn next_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::next_leaf(self)
+    }
+
+    pub fn prev_leaf(&mut self) -> Option<&L> {
+        <Self as CursorNav>::prev_leaf(self)
+    }
+
+    pub fn left_maybe_ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::left_maybe_ascend(self)
+    }
+
+    pub fn right_maybe_ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        <Self as CursorNav>::right_maybe_ascend(self)
+    }
+
+    /// See `CursorMut::find_min` for more details.
+    pub fn find_min<IS>(&mut self, info_sub: IS) -> Option<&L>
+        where IS: SubOrd<L::Info>,
+    {
+        <Self as CursorNav>::find_min(self, info_sub)
+    }
+
+    /// See `CursorMut::find_max` for more details.
+    pub fn find_max<IS>(&mut self, info_sub: IS) -> Option<&L>
+        where IS: SubOrd<L::Info>,
+    {
+        <Self as CursorNav>::find_max(self, info_sub)
+    }
+
+    /// See `CursorMut::goto_min` for more details.
+    pub fn goto_min<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&L> {
+        <Self as CursorNav>::goto_min(self, path_info_sub)
+    }
+
+    /// See `CursorMut::goto_max` for more details.
+    pub fn goto_max<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&L> {
+        <Self as CursorNav>::goto_max(self, path_info_sub)
+    }
+}
+
+impl<'a, L, PI, CONF> CursorNav for Cursor<'a, L, PI, CONF>
+    where L: Leaf + 'a,
+          PI: PathInfo<L::Info>,
+          CONF: CConf<'a, L, PI>,
+          CONF::Ptr: 'a,
+{
+    type Leaf = L;
+    type NodesPtr = CONF::Ptr;
+    type PathInfo = PI;
+
+    fn _is_root(&self) -> bool {
+        self.is_root()
+    }
+
+    fn _path_info(&self) -> PI {
+        self.path_info()
+    }
+
+    fn _leaf(&self) -> Option<&L> {
+        self.leaf()
+    }
+
+    fn _height(&self) -> Option<usize> {
+        Some(self.height())
+    }
+
+    fn _current(&self) -> Option<&Node<L, CONF::Ptr>> {
+        Some(self.current())
+    }
+
+    fn _current_must(&self) -> &Node<L, CONF::Ptr> {
+        self.current()
+    }
+
+    fn _reset(&mut self) {
+        self.reset();
+    }
+
+    fn _ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.ascend()
+    }
+
+    fn _descend_first(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.descend_first()
+    }
+
+    fn _descend_last(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.descend_last()
+    }
+
+    fn _left_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.left_sibling()
+    }
+
+    fn _right_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {
+        self.right_sibling()
     }
 }
 
@@ -282,7 +369,7 @@ impl<'a, L, PI, CONF> Iterator for LeafIter<'a, L, PI, CONF>
 
 #[cfg(test)]
 mod tests {
-    use cursor::{Cursor, CursorNav};
+    use cursor::Cursor;
     use test_help::*;
 
     #[test]
