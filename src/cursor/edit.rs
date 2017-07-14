@@ -639,17 +639,46 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
             debug_assert_eq!(cur_node.height(), newnode.height());
             match steps.last_mut() {
                 Some(&mut CMutStep { ref mut nodes, ref mut idx, ref mut path_info, .. }) => {
-                    let maybe_split = {
+                    let maybe_split;
+                    {
                         let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
+
+                        if !newnode.has_min_size() {
+                            let cur_owned = cur_node.never_take();
+                            let (mut children1, mut children2) =
+                                if after {
+                                    (cur_owned.into_children_must(), newnode.into_children_must())
+                                } else {
+                                    (newnode.into_children_must(), cur_owned.into_children_must())
+                                };
+                            let merged = balance_maybe_merge::<_, CONF::Ptr>(
+                                <CONF::Ptr as NodesPtr<L>>::make_mut(&mut children1),
+                                <CONF::Ptr as NodesPtr<L>>::make_mut(&mut children2));
+                            let mut left = Node::from_children(children1);
+                            if merged {
+                                cur_node.never_swap(&mut left);
+                                break;
+                            } else {
+                                let mut right = Node::from_children(children2);
+                                if after {
+                                    cur_node.never_swap(&mut left);
+                                    newnode = right;
+                                } else {
+                                    newnode = left;
+                                    cur_node.never_swap(&mut right);
+                                }
+                            }
+                        }
+                        debug_assert!(!cur_node.is_never());
                         let cur_info = cur_node.info();
                         cur_node.never_swap(&mut nodes[*idx]);
                         if after {
                             *path_info = path_info.extend(cur_info);
                             *idx += 1;
                         }
-                        insert_maybe_split(nodes, *idx, newnode)
-                    };
-                    // now cur_node is never <=> !self.is_empty & assertion in never_swap
+                        maybe_split = insert_maybe_split(nodes, *idx, newnode);
+                    }
+                    // now cur_node is never
                     if let Some(split_node) = maybe_split {
                         newnode = split_node;
                         after = true;
@@ -683,15 +712,18 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
         let CMutStep { mut nodes, mut idx, mut path_info, .. } = cstep;
         let nodes_len = nodes.len();
         debug_assert!(nodes_len > 0); // nodes should never be empty
+        debug_assert!(nodes.iter().all(|n| !n.is_never())); // nodes should be all valid
         let steps_len = self.steps.len();
         if nodes_len >= <CONF::Ptr as NodesPtr<L>>::max_size()/2 || steps_len == 0 {
-            if idx == nodes_len {
+            let at_right_end = idx == nodes_len;
+            if at_right_end {
                 idx -= 1;
             }
             self.cur_node.never_swap(&mut <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes)[idx]);
-            debug_assert!(self.cur_node.is_leaf() ||
-                          self.cur_node.children().len() >= <CONF::Ptr as NodesPtr<L>>::max_size()/2);
-            path_info = path_info.extend_inv(self.cur_node.info());
+            if at_right_end {
+                path_info = path_info.extend_inv(self.cur_node.info());
+            }
+            debug_assert!(self.cur_node.is_leaf() || self.cur_node.has_min_size());
             self.push_step(CMutStep::new(nodes, idx, path_info));
         } else { // steps_len > 0
             debug_assert_eq!(nodes_len, <CONF::Ptr as NodesPtr<L>>::max_size()/2 - 1);
@@ -709,12 +741,12 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
             debug_assert!(self.steps.len() == 0); // the parent must be root
             return; // cur_node becomes the root
         }
-        let at_right_end = idx + 1 == nodes.len(); // merge with the right node by default
+        let merge_left = idx + 1 == nodes.len(); // merge with the right node by default
         debug_assert!(nodes.len() > 1);
         let merged;
         {
             let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes);
-            merged = if at_right_end {
+            merged = if merge_left {
                 let left_node = nodes.get_mut(idx - 1).unwrap();
                 path_info = path_info.extend_inv(left_node.info());
                 balance_maybe_merge::<_, CONF::Ptr>(left_node.children_mut_must(),
@@ -725,13 +757,17 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
                                                     right_node.children_mut_must())
             };
             if merged {
-                if !at_right_end {
+                if merge_left {
+                    self.cur_node.never_take(); // make the now empty cur_node never
+                    nodes.remove(idx).unwrap(); // and remove its placeholder
+                    idx -= 1; // make left_node be the current node (for path_info correctness)
+                } else {
                     nodes.remove(idx + 1).unwrap(); // remove the now empty right_node
                     self.cur_node.never_swap(&mut nodes[idx]);
                 }
                 debug_assert!(self.cur_node.is_never());
             } else {
-                if at_right_end {
+                if merge_left {
                     self.cur_node.never_swap(&mut nodes[idx]);
                     idx -= 1; // make left_node be the current node (for path_info correctness)
                     self.cur_node.never_swap(&mut nodes[idx]);

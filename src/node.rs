@@ -388,6 +388,8 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     idx: usize,
     newnode: Node<L, NP>
 ) -> Option<Node<L, NP>> {
+    debug_assert!(newnode.has_min_size());
+
     if nodes.len() < NP::max_size() {
         let _res = nodes.insert(idx, newnode);
         debug_assert!(_res.is_none());
@@ -395,10 +397,10 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     } else {
         let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
         let n_left = balanced_split::<L, NP>(NP::max_size() + 1).0;
-        let mut after: ArrayVec<NP::Array> = nodes.drain(n_left + 1..).collect();
-        let _res = after.push(extra);
+        let mut right: ArrayVec<NP::Array> = nodes.drain(n_left + 1..).collect();
+        let _res = right.push(extra);
         debug_assert!(_res.is_none());
-        Some(Node::from_children(NP::new(after)))
+        Some(Node::from_children(NP::new(right)))
     }
 }
 
