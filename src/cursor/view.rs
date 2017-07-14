@@ -125,15 +125,9 @@ impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
         }
     }
 
-    /// Descend the tree once, on the child for which `f` returns `true`.
+    /// See [`CursorMut::descend_by`] for more details.
     ///
-    /// Returns `None` if cursor is at a leaf node, or if `f` returned `false` on all children.
-    ///
-    /// The arguments to `f` are treated exactly the same as in [`Node::path_traverse`].
-    ///
-    /// Panics if tree depth is greater than 8.
-    ///
-    /// [`Node::path_traverse`]: ../enum.Node.html#method.path_traverse
+    /// [`CursorMut::descend_by`]: struct.CursorMut.html#method.descend_by
     pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&'a Node<L, CONF::Ptr>>
         where F: FnMut(PI, L::Info, usize, usize) -> bool
     {
@@ -205,60 +199,80 @@ impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
         }
     }
 
-    pub fn first_leaf(&mut self) -> Option<&L> {
-        <Self as CursorNav>::first_leaf(self)
+    pub fn first_leaf(&mut self) -> Option<&'a L> {
+        let short_lived: Option<&L> = <Self as CursorNav>::first_leaf(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    pub fn last_leaf(&mut self) -> Option<&L> {
-        <Self as CursorNav>::last_leaf(self)
+    pub fn last_leaf(&mut self) -> Option<&'a L> {
+        let short_lived: Option<&L> = <Self as CursorNav>::last_leaf(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    pub fn next_node(&mut self) -> Option<&Node<L, CONF::Ptr>> {
-        <Self as CursorNav>::next_node(self)
+    pub fn next_node(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
+        let short_lived: Option<&Node<_, _>> = <Self as CursorNav>::next_node(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    pub fn prev_node(&mut self) -> Option<&Node<L, CONF::Ptr>> {
-        <Self as CursorNav>::prev_node(self)
+    pub fn prev_node(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
+        let short_lived: Option<&Node<_, _>> = <Self as CursorNav>::prev_node(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    pub fn next_leaf(&mut self) -> Option<&L> {
-        <Self as CursorNav>::next_leaf(self)
+    pub fn next_leaf(&mut self) -> Option<&'a L> {
+        let short_lived: Option<&L> = <Self as CursorNav>::next_leaf(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    pub fn prev_leaf(&mut self) -> Option<&L> {
-        <Self as CursorNav>::prev_leaf(self)
+    pub fn prev_leaf(&mut self) -> Option<&'a L> {
+        let short_lived: Option<&L> = <Self as CursorNav>::prev_leaf(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    pub fn left_maybe_ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
-        <Self as CursorNav>::left_maybe_ascend(self)
+    pub fn left_maybe_ascend(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
+        let short_lived: Option<&Node<_, _>> = <Self as CursorNav>::left_maybe_ascend(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    pub fn right_maybe_ascend(&mut self) -> Option<&Node<L, CONF::Ptr>> {
-        <Self as CursorNav>::right_maybe_ascend(self)
+    pub fn right_maybe_ascend(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
+        let short_lived: Option<&Node<_, _>> = <Self as CursorNav>::right_maybe_ascend(self);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    /// See `CursorMut::find_min` for more details.
-    pub fn find_min<IS>(&mut self, info_sub: IS) -> Option<&L>
+    /// See [`CursorMut::find_min`] for more details.
+    ///
+    /// [`CursorMut::find_min`]: struct.CursorMut.html#method.find_min
+    pub fn find_min<IS>(&mut self, info_sub: IS) -> Option<&'a L>
         where IS: SubOrd<L::Info>,
     {
-        <Self as CursorNav>::find_min(self, info_sub)
+        let short_lived: Option<&L> = <Self as CursorNav>::find_min(self, info_sub);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    /// See `CursorMut::find_max` for more details.
-    pub fn find_max<IS>(&mut self, info_sub: IS) -> Option<&L>
+    /// See [`CursorMut::find_max`] for more details.
+    ///
+    /// [`CursorMut::find_max`]: struct.CursorMut.html#method.find_max
+    pub fn find_max<IS>(&mut self, info_sub: IS) -> Option<&'a L>
         where IS: SubOrd<L::Info>,
     {
-        <Self as CursorNav>::find_max(self, info_sub)
+        let short_lived: Option<&L> = <Self as CursorNav>::find_max(self, info_sub);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    /// See `CursorMut::goto_min` for more details.
-    pub fn goto_min<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&L> {
-        <Self as CursorNav>::goto_min(self, path_info_sub)
+    /// See [`CursorMut::goto_min`] for more details.
+    ///
+    /// [`CursorMut::goto_min`]: struct.CursorMut.html#method.goto_min
+    pub fn goto_min<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&'a L> {
+        let short_lived: Option<&L> = <Self as CursorNav>::goto_min(self, path_info_sub);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 
-    /// See `CursorMut::goto_max` for more details.
-    pub fn goto_max<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&L> {
-        <Self as CursorNav>::goto_max(self, path_info_sub)
+    /// See [`CursorMut::goto_max`] for more details.
+    ///
+    /// [`CursorMut::goto_max`]: struct.CursorMut.html#method.goto_max
+    pub fn goto_max<PS: SubOrd<PI>>(&mut self, path_info_sub: PS) -> Option<&'a L> {
+        let short_lived: Option<&L> = <Self as CursorNav>::goto_max(self, path_info_sub);
+        unsafe { ::std::mem::transmute(short_lived) }
     }
 }
 
@@ -358,11 +372,9 @@ impl<'a, L, PI, CONF> Iterator for LeafIter<'a, L, PI, CONF>
     fn next(&mut self) -> Option<&'a L> {
         if !self.init_done {
             self.init_done = true;
-            self.inner.first_leaf();
-            self.inner.leaf()
+            self.inner.first_leaf()
         } else {
-            self.inner.next_node();
-            self.inner.leaf()
+            self.inner.next_leaf()
         }
     }
 }
