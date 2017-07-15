@@ -18,7 +18,6 @@ impl<T: Clone> Leaf for ListLeaf<T> {
     fn compute_info(&self) -> ListInfo { 1 }
 }
 
-#[derive(Clone)]
 pub struct List<T, CONF=Rc33M>
     where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
 {
@@ -26,7 +25,6 @@ pub struct List<T, CONF=Rc33M>
     len_cache: usize,
 }
 
-#[derive(Clone)]
 pub struct ListView<'a, T, CONF>
     where T: Clone + 'a,
           CONF: CConf<'a, ListLeaf<T>, ListIndex>,
@@ -51,10 +49,10 @@ impl<T, CONF> List<T, CONF>
         self.inner.is_empty()
     }
 
-    pub fn len(&self) -> usize {
-        //self.inner.reset();
-        //self.inner.path_info()
-        self.len_cache
+    pub fn len(&mut self) -> usize {
+        self.inner.reset();
+        self.inner.current().map(|n| n.info()).unwrap_or(0)
+        //self.len_cache
     }
 
     pub fn insert(&mut self, index: usize, element: T) -> Result<(), T> {
@@ -62,7 +60,7 @@ impl<T, CONF> List<T, CONF>
         if index == len {
             self.push(element);
         } else if index < len {
-            self.inner.goto_max(index);
+            self.inner.goto_min(index);
             self.inner.insert_leaf(ListLeaf(element), false);
         } else {
             return Err(element);
@@ -83,11 +81,14 @@ impl<T, CONF> List<T, CONF>
     }
 
     pub fn pop(&mut self) -> Option<T> {
-        if self.len_cache > 0 {
-            let len = self.len();
+        let len = self.len();
+        if len > 0 {
             self.len_cache -= 1;
-            self.inner.goto_max(len);
-            Some(self.inner.remove_node().and_then(|n| n.into_leaf().ok()).unwrap().0)
+            {
+                let leaf = self.inner.goto_max(len);
+                debug_assert!(leaf.is_some());
+            }
+            Some(self.inner.remove_leaf().unwrap().0)
         } else {
             None
         }
@@ -102,24 +103,15 @@ impl<T, CONF> List<T, CONF>
     }
 
     pub fn get(&mut self, index: usize) -> Option<&T> {
-        if self.inner.goto_max(index).is_some() {
-            let path = self.inner.path_info();
-            if path == index {
-                self.inner.leaf().map(|l| &l.0)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        self.inner.goto_min(index).map(|l| &l.0)
     }
 
     pub fn first(&mut self) -> Option<&T> {
-        unimplemented!()
+        self.inner.goto_min(0).map(|l| &l.0)
     }
 
     pub fn last(&mut self) -> Option<&T> {
-        unimplemented!()
+        self.inner.goto_max(self.len_cache).map(|l| &l.0)
     }
 
     pub fn split_off(&mut self, _index: usize) -> List<T> {
@@ -136,6 +128,17 @@ impl<'a, T, CONF> List<T, CONF>
     pub fn view(&'a mut self) -> Option<ListView<'a, T, CONF>> {
         self.inner.reset();
         self.inner.current().map(|node| ListView::from_node(node))
+    }
+}
+
+impl<T, CONF> Clone for List<T, CONF>
+    where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
+{
+    fn clone(&self) -> Self {
+        List {
+            inner: self.inner.clone(),
+            len_cache: self.len_cache,
+        }
     }
 }
 
@@ -201,6 +204,10 @@ impl<'a, T, CONF> ListView<'a, T, CONF>
         &self.inner.goto_max(self.len_cache).unwrap().0
     }
 
+    pub fn iter(&self) -> Iter<'a, T, CONF> {
+        self.range(Bound::Unbounded, Bound::Unbounded)
+    }
+
     pub fn range(&self, start: Bound<usize>, end: Bound<usize>) -> Iter<'a, T, CONF> {
         let start = match start {
             Bound::Included(i) => i,
@@ -216,6 +223,19 @@ impl<'a, T, CONF> ListView<'a, T, CONF>
             inner: Cursor::new(self.inner.root()),
             start: start,
             end: end,
+        }
+    }
+}
+
+impl<'a, T, CONF> Clone for ListView<'a, T, CONF>
+    where T: Clone + 'a,
+          CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+          CONF::Ptr: 'a,
+{
+    fn clone(&self) -> Self {
+        ListView {
+            inner: self.inner.clone(),
+            len_cache: self.len_cache,
         }
     }
 }
@@ -267,26 +287,65 @@ impl<'a, T, CONF> DoubleEndedIterator for Iter<'a, T, CONF>
     }
 }
 
+impl<'a, T, CONF> Clone for Iter<'a, T, CONF>
+    where T: Clone + 'a, CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+{
+    fn clone(&self) -> Self {
+        Iter {
+            inner: self.inner.clone(),
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{List, Bound};
+    use super::List;
 
     #[test]
-    fn push() {
+    fn from_iter() {
         let mut list: List<_> = (0..256).collect();
-        list.push(256);
-        assert_eq!(list.pop(), Some(256));
+        for i in 0..256 {
+            assert_eq!(list.get(i), Some(&i));
+        }
     }
 
     #[test]
-    fn iter() {
+    fn view_iter() {
         let mut list: List<_> = (0..256).collect();
-        let mut iter = list.view().unwrap().range(Bound::Unbounded, Bound::Unbounded);
+        let view = list.view().unwrap();
+        let mut iter = view.iter();
         assert_eq!(iter.next(), Some(&0));
         assert_eq!(iter.next_back(), Some(&255));
         assert_eq!(iter.next(), Some(&1));
         assert_eq!(iter.next_back(), Some(&254));
         assert_eq!(iter.next_back(), Some(&253));
         assert_eq!(iter.next(), Some(&2));
+        let mut iter = view.iter();
+        for i in 0..256 {
+            assert_eq!(iter.next(), Some(&i));
+        }
+        assert_eq!(iter.next(), None);
+        let mut iter = view.iter();
+        for i in (0..256).rev() {
+            assert_eq!(iter.next_back(), Some(&i));
+        }
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn push_pop() {
+        let mut list: List<_> = (0..242).collect();
+        for i in 242..256 {
+            list.push(i);
+        }
+        for (i, j) in list.view().unwrap().iter().enumerate() {
+            assert_eq!(i, *j);
+        }
+        for i in (0..256).rev() {
+            assert_eq!(list.len(), i + 1);
+            assert_eq!(list.pop(), Some(i));
+        }
     }
 }
