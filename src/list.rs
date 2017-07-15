@@ -101,8 +101,17 @@ impl<T, CONF> List<T, CONF>
         self.inner = CursorMut::new();
     }
 
-    pub fn get(&mut self, _index: usize) -> Option<&T> {
-        unimplemented!()
+    pub fn get(&mut self, index: usize) -> Option<&T> {
+        if self.inner.goto_max(index).is_some() {
+            let path = self.inner.path_info();
+            if path == index {
+                self.inner.leaf().map(|l| &l.0)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     pub fn first(&mut self) -> Option<&T> {
@@ -170,16 +179,26 @@ impl<'a, T, CONF> ListView<'a, T, CONF>
         self.len_cache
     }
 
-    pub fn get(&self, _index: usize) -> Option<&T> {
-        unimplemented!()
+    pub fn get(&mut self, index: usize) -> Option<&T> {
+        if index + 1 == self.len() {
+            return Some(self.last())
+        } else {
+            if self.inner.goto_min(index).is_some() {
+                let path = self.inner.path_info();
+                if path == index {
+                    return self.inner.leaf().map(|l| &l.0);
+                }
+            }
+        }
+        None
     }
 
-    pub fn first(&self) -> Option<&T> {
-        unimplemented!()
+    pub fn first(&mut self) -> &T {
+        &self.inner.goto_min(0).unwrap().0
     }
 
-    pub fn last(&self) -> Option<&T> {
-        unimplemented!()
+    pub fn last(&mut self) -> &T {
+        &self.inner.goto_max(self.len_cache).unwrap().0
     }
 
     pub fn range(&self, start: Bound<usize>, end: Bound<usize>) -> Iter<'a, T, CONF> {
@@ -189,8 +208,8 @@ impl<'a, T, CONF> ListView<'a, T, CONF>
             Bound::Unbounded => 0,
         };
         let end = match end {
-            Bound::Included(i) => i,
-            Bound::Excluded(i) => i.checked_sub(1).unwrap(),
+            Bound::Included(i) => i.checked_add(1).unwrap(),
+            Bound::Excluded(i) => i,
             Bound::Unbounded => self.len_cache,
         };
         Iter {
@@ -218,10 +237,15 @@ impl<'a, T, CONF> Iterator for Iter<'a, T, CONF>
 
     fn next(&mut self) -> Option<&'a T> {
         if self.start < self.end {
-            unimplemented!()
-        } else {
-            None
+            if self.inner.goto_min(self.start).is_some() {
+                let path = self.inner.path_info();
+                if path == self.start {
+                    self.start += 1;
+                    return self.inner.leaf().map(|l| &l.0);
+                }
+            }
         }
+        None
     }
 }
 
@@ -229,22 +253,40 @@ impl<'a, T, CONF> DoubleEndedIterator for Iter<'a, T, CONF>
     where T: Clone + 'a, CONF: CConf<'a, ListLeaf<T>, ListIndex>,
 {
     fn next_back(&mut self) -> Option<&'a T> {
+        use traits::PathInfo;
         if self.start < self.end {
-            unimplemented!()
-        } else {
-            None
+            if self.inner.goto_max(self.end).is_some() {
+                let path = self.inner.path_info().extend(self.inner.current().info());
+                if path == self.end {
+                    self.end -= 1;
+                    return self.inner.leaf().map(|l| &l.0);
+                }
+            }
         }
+        None
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::List;
+    use super::{List, Bound};
 
     #[test]
     fn push() {
         let mut list: List<_> = (0..256).collect();
         list.push(256);
         assert_eq!(list.pop(), Some(256));
+    }
+
+    #[test]
+    fn iter() {
+        let mut list: List<_> = (0..256).collect();
+        let mut iter = list.view().unwrap().range(Bound::Unbounded, Bound::Unbounded);
+        assert_eq!(iter.next(), Some(&0));
+        assert_eq!(iter.next_back(), Some(&255));
+        assert_eq!(iter.next(), Some(&1));
+        assert_eq!(iter.next_back(), Some(&254));
+        assert_eq!(iter.next_back(), Some(&253));
+        assert_eq!(iter.next(), Some(&2));
     }
 }
