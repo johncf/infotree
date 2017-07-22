@@ -747,20 +747,18 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
         {
             let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes);
             merged = if merge_left {
-                let left_node = nodes.get_mut(idx - 1).unwrap();
-                path_info = path_info.extend_inv(left_node.info());
-                balance_maybe_merge::<_, CONF::Ptr>(left_node.children_mut_must(),
-                                                    self.cur_node.children_mut_must())
+                let left_node_int = nodes.get_mut(idx - 1).unwrap().internal_mut_must();
+                path_info = path_info.extend_inv(left_node_int.info());
+                left_node_int.try_merge_with(self.cur_node.internal_mut_must())
             } else {
-                let right_node = nodes.get_mut(idx + 1).unwrap();
-                balance_maybe_merge::<_, CONF::Ptr>(self.cur_node.children_mut_must(),
-                                                    right_node.children_mut_must())
+                let right_node_int = nodes.get_mut(idx + 1).unwrap().internal_mut_must();
+                self.cur_node.internal_mut_must().try_merge_with(right_node_int)
             };
             if merged {
                 if merge_left {
                     self.cur_node.never_take(); // make the now empty cur_node never
                     nodes.remove(idx).unwrap(); // and remove its placeholder
-                    idx -= 1; // make left_node be the current node (for path_info correctness)
+                    idx -= 1; // make left_node be the current node (path_info already adjusted)
                 } else {
                     nodes.remove(idx + 1).unwrap(); // remove the now empty right_node
                     self.cur_node.never_swap(&mut nodes[idx]);

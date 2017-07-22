@@ -82,13 +82,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     /// All nodes should be at the same height, panics otherwise.
     #[inline]
     pub fn from_children(nodes: NP) -> Node<L, NP> {
-        let height = nodes[0].height() + 1;
-        let mut info = nodes[0].info();
-        for child in &nodes[1..] {
-            assert_eq!(height, child.height() + 1);
-            info = info.gather(child.info());
-        }
-        Node::Internal(InternalVal { info, height, nodes })
+        Node::Internal(InternalVal::from_children(nodes))
     }
 
     /// Tries to unwrap the node into leaf. If node is internal, `Err(self)` is returned.
@@ -363,6 +357,7 @@ pub(crate) fn balance_maybe_merge<L: Leaf, NP: NodesPtr<L>>(
     let (len1, len2) = (children1.len(), children2.len());
     if len1 + len2 <= NP::max_size() {
         children1.extend(children2.drain(..));
+        debug_assert_eq!(children1.len(), len1 + len2);
         true
     } else if len1 < NP::max_size()/2 || len2 < NP::max_size()/2 {
         let (newlen1, newlen2) = balanced_split::<L, NP>(len1 + len2);
@@ -375,6 +370,7 @@ pub(crate) fn balance_maybe_merge<L: Leaf, NP: NodesPtr<L>>(
             let drain2 = len2 - newlen2;
             children1.extend(children2.drain(..drain2));
         }
+        debug_assert_eq!(children1.len() + children2.len(), len1 + len2);
         false
     } else {
         false
@@ -409,6 +405,47 @@ pub enum TraverseError {
     IsLeaf,
 }
 
+impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
+    fn summarize(nodes: &NP) -> (L::Info, usize) {
+        let height = nodes[0].height() + 1;
+        let mut info = nodes[0].info();
+        for child in &nodes[1..] {
+            assert_eq!(height, child.height() + 1);
+            info = info.gather(child.info());
+        }
+        (info, height)
+    }
+
+    pub(crate) fn from_children(nodes: NP) -> Self {
+        let (info, height) = Self::summarize(&nodes);
+        InternalVal { info, height, nodes }
+    }
+
+    pub(crate) fn info(&self) -> L::Info {
+        self.info
+    }
+
+    // Returns whether `self` was merged with `other`. If `true`, `other` will have zero children
+    // and must not be used any further.
+    pub(crate) fn try_merge_with(&mut self, other: &mut Self) -> bool {
+        debug_assert_eq!(self.height, other.height);
+        let merged_info = self.info.gather(other.info);
+        let merged = {
+            let children_self = NP::make_mut(&mut self.nodes);
+            let children_other = NP::make_mut(&mut other.nodes);
+            balance_maybe_merge::<L, NP>(children_self, children_other)
+        };
+        if merged {
+            self.info = merged_info;
+        } else {
+            self.info = Self::summarize(&self.nodes).0;
+            other.info = Self::summarize(&other.nodes).0;
+        }
+        merged
+    }
+
+}
+
 impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     // Update leaf value in place.
     pub(crate) fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
@@ -418,10 +455,10 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         }
     }
 
-    pub(crate) fn children_mut_must(&mut self) -> &mut ArrayVec<NP::Array> {
+    pub(crate) fn internal_mut_must(&mut self) -> &mut InternalVal<L, NP> {
         match *self {
-            Node::Internal(ref mut int) => NP::make_mut(&mut int.nodes),
-            Node::Leaf(_) => unreachable!("buggy children_mut_must call"),
+            Node::Internal(ref mut int) => int,
+            Node::Leaf(_) => unreachable!("buggy internal_mut_must call"),
             Node::Never(_) => unsafe { boom("Never!") },
         }
     }
