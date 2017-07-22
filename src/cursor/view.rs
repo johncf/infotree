@@ -74,6 +74,44 @@ impl<'a, L, PI, CONF> fmt::Debug for CStep<'a, L, PI, CONF>
     }
 }
 
+impl<'a, L, PI, CONF> fmt::Debug for Cursor<'a, L, PI, CONF>
+    where L: Leaf + 'a,
+          L::Info: fmt::Debug,
+          PI: PathInfo<L::Info>,
+          CONF: CConf<'a, L, PI>,
+          CONF::Ptr: 'a,
+{
+    /// Prints the tree under the current node.
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut cursor = Self::new(self.current());
+        let mut height = cursor.height();
+        loop {
+            while cursor.height() > height {
+                let _res = cursor.descend_first();
+                debug_assert!(_res.is_some());
+            }
+            write!(f, "{}: ", height)?;
+            loop {
+                write!(f, "{:?} ", cursor.current().info())?;
+                if cursor.right_sibling().is_none() {
+                    if cursor.next_node().is_some() {
+                        write!(f, "// ")?;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if height == 0 { break; }
+            else {
+                writeln!(f)?;
+                height -= 1;
+            }
+            cursor.reset();
+        }
+        Ok(())
+    }
+}
+
 impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
     where L: Leaf + 'a,
           PI: PathInfo<L::Info>,
