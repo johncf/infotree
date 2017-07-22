@@ -235,7 +235,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     /// Concatenates two nodes of possibly different heights into a single balanced node if the
     /// resulting height does not exceed the maximum height among the original nodes. Otherwise,
     /// splits them into two nodes of equal height.
-    pub fn maybe_concat(node1: Node<L, NP>, node2: Node<L, NP>) -> (Node<L, NP>, Option<Node<L, NP>>) {
+    pub fn maybe_concat(mut node1: Node<L, NP>, mut node2: Node<L, NP>) -> (Node<L, NP>, Option<Node<L, NP>>) {
         // This is an optimized version of the following code:
         // https://github.com/google/xi-editor/blob/cbec578/rust/rope/src/tree.rs#L276-L318
         // The originally adapted code (around 3x slower) is probably much easier to read and
@@ -252,12 +252,12 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     if h1 == h2 - 1 && node1.has_min_size() {
                         insert_maybe_split(children2, 0, node1)
                     } else {
-                        let newnode = Node::concat(node1, children2.remove(0).unwrap());
-                        if newnode.height() == h2 - 1 {
-                            insert_maybe_split(children2, 0, newnode)
+                        let newnode2 = Node::concat(node1, children2.remove(0).unwrap());
+                        if newnode2.height() == h2 - 1 {
+                            insert_maybe_split(children2, 0, newnode2)
                         } else {
-                            debug_assert_eq!(newnode.height(), h2);
-                            let mut newchildren = newnode.into_children_must();
+                            debug_assert_eq!(newnode2.height(), h2);
+                            let mut newchildren = newnode2.into_children_must();
                             let merged = {
                                 let newchildren = NP::make_mut(&mut newchildren);
                                 mem::swap(newchildren, children2);
@@ -277,12 +277,10 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 if node1.has_min_size() && node2.has_min_size() {
                     (node1, Some(node2))
                 } else {
-                    let mut children1 = node1.into_children_must();
-                    let mut children2 = node2.into_children_must();
-                    if balance_maybe_merge::<_, NP>(NP::make_mut(&mut children1), NP::make_mut(&mut children2)) {
-                        (Node::from_children(children1), None)
+                    if node1.internal_mut_must().try_merge_with(node2.internal_mut_must()) {
+                        (node1, None)
                     } else {
-                        (Node::from_children(children1), Some(Node::from_children(children2)))
+                        (node1, Some(node2))
                     }
                 }
             },
@@ -294,13 +292,13 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     if h2 == h1 - 1 && node2.has_min_size() {
                         insert_maybe_split(children1, len1, node2)
                     } else {
-                        let newnode = Node::concat(children1.pop().unwrap(), node2);
+                        let newnode1 = Node::concat(children1.pop().unwrap(), node2);
                         let len1 = len1 - 1;
-                        if newnode.height() == h1 - 1 {
-                            insert_maybe_split(children1, len1, newnode)
+                        if newnode1.height() == h1 - 1 {
+                            insert_maybe_split(children1, len1, newnode1)
                         } else {
-                            debug_assert_eq!(newnode.height(), h1);
-                            let mut newchildren = newnode.into_children_must();
+                            debug_assert_eq!(newnode1.height(), h1);
+                            let mut newchildren = newnode1.into_children_must();
                             let merged = {
                                 let newchildren = NP::make_mut(&mut newchildren);
                                 balance_maybe_merge::<_, NP>(children1, newchildren)
@@ -351,7 +349,9 @@ fn balanced_split<L: Leaf, NP: NodesPtr<L>>(total: usize) -> (usize, usize) {
 
 // Tries to merge two lists of nodes into one (returns true), otherwise balances the lists so that
 // both of them have at least NP::max_size()/2 nodes (returns false).
-pub(crate) fn balance_maybe_merge<L: Leaf, NP: NodesPtr<L>>(
+//
+// It is best to avoid a direct call to this in favor of InternalVal::extend_maybe_balance
+fn balance_maybe_merge<L: Leaf, NP: NodesPtr<L>>(
     children1: &mut ArrayVec<NP::Array>, children2: &mut ArrayVec<NP::Array>
 ) -> bool {
     let (len1, len2) = (children1.len(), children2.len());

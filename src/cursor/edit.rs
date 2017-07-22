@@ -1,7 +1,7 @@
 use super::conf::{CMutConf, Rc33M};
 use super::nav::CursorNav;
 use traits::{Leaf, PathInfo, SubOrd};
-use node::{Node, NodesPtr, insert_maybe_split, balance_maybe_merge};
+use node::{Node, NodesPtr, insert_maybe_split};
 
 use std::fmt;
 use std::iter::FromIterator;
@@ -644,29 +644,20 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
                         let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
 
                         if !newnode.has_min_size() {
-                            let cur_owned = cur_node.never_take();
-                            let (mut children1, mut children2) =
-                                if after {
-                                    (cur_owned.into_children_must(), newnode.into_children_must())
-                                } else {
-                                    (newnode.into_children_must(), cur_owned.into_children_must())
-                                };
-                            let merged = balance_maybe_merge::<_, CONF::Ptr>(
-                                <CONF::Ptr as NodesPtr<L>>::make_mut(&mut children1),
-                                <CONF::Ptr as NodesPtr<L>>::make_mut(&mut children2));
-                            let mut left = Node::from_children(children1);
+                            let merged = {
+                                let (left_int, right_int) =
+                                    if after {
+                                        (cur_node.internal_mut_must(), newnode.internal_mut_must())
+                                    } else {
+                                        (newnode.internal_mut_must(), cur_node.internal_mut_must())
+                                    };
+                                left_int.try_merge_with(right_int)
+                            };
                             if merged {
-                                cur_node.never_swap(&mut left);
-                                break;
-                            } else {
-                                let mut right = Node::from_children(children2);
-                                if after {
-                                    cur_node.never_swap(&mut left);
-                                    newnode = right;
-                                } else {
-                                    newnode = left;
-                                    cur_node.never_swap(&mut right);
+                                if !after {
+                                    *cur_node = newnode;
                                 }
+                                return;
                             }
                         }
                         debug_assert!(!cur_node.is_never());
@@ -682,11 +673,11 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
                     if let Some(split_node) = maybe_split {
                         newnode = split_node;
                         after = true;
-                        // the only way out of match without breaking
+                        // the only way out of match without returning
                     } else {
                         let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
                         cur_node.never_swap(&mut nodes[*idx]);
-                        break;
+                        return;
                     }
                 }
                 None => { // cur_node is the root
@@ -695,7 +686,7 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
                     } else {
                         Node::concat(newnode, cur_node.never_take())
                     };
-                    break;
+                    return;
                 }
             }
 
