@@ -966,17 +966,19 @@ mod tests {
         for i in split_at..total {
             assert_eq!(leaf_iter.next(), Some(&SetLeaf('a', i)));
         }
+        assert!(orig_ht >= right.height());
 
-        let left = cursor_mut.into_root().unwrap();
-        let mut leaf_iter = CursorT::new(&left).into_iter();
-        for i in 0..split_at {
-            assert_eq!(leaf_iter.next(), Some(&SetLeaf('a', i)));
+        let maybe_left = cursor_mut.into_root();
+        if split_at > 0 {
+            let left = maybe_left.unwrap();
+            let mut leaf_iter = CursorT::new(&left).into_iter();
+            for i in 0..split_at {
+                assert_eq!(leaf_iter.next(), Some(&SetLeaf('a', i)));
+            }
+            assert!(orig_ht >= left.height());
+        } else {
+            assert!(maybe_left.is_none());
         }
-
-        let (left_ht, right_ht) = (left.height(), right.height());
-        println!("heights, orig: {}, left: {}, right: {}", orig_ht, left_ht, right_ht);
-        assert!((orig_ht == left_ht || orig_ht == right_ht) &&
-                (orig_ht >= left_ht && orig_ht >= right_ht));
     }
 
     #[test]
