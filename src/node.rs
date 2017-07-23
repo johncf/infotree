@@ -325,7 +325,7 @@ impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
         let mut root = iter.next().expect("Iterator should not be empty.");
 
         loop {
-            let nodes: ArrayVec<NP::Array> = iter.by_ref().take(NP::max_size()).collect();
+            let nodes: ArrayVec<_> = iter.by_ref().take(NP::max_size()).collect();
             if nodes.len() > 0 {
                 let node = Node::from_children(NP::new(nodes));
                 root = Node::concat(root, node);
@@ -393,7 +393,7 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     } else {
         let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
         let n_left = balanced_split::<L, NP>(NP::max_size() + 1).0;
-        let mut right: ArrayVec<NP::Array> = nodes.drain(n_left + 1..).collect();
+        let mut right: ArrayVec<_> = nodes.drain(n_left..).collect();
         let _res = right.push(extra);
         debug_assert!(_res.is_none());
         Some(Node::from_children(NP::new(right)))
@@ -515,21 +515,33 @@ mod tests {
     use ::test_help::*;
 
     #[test]
-    fn concat() {
-        let node = NodeRc::from_leaf(ListLeaf(1));
-        assert_eq!(node.height(), 0);
+    fn info_height() {
+        let mut node = NodeRc::from_leaf(ListLeaf(1));
         assert_eq!(node.info(), ListInfo { count: 1, sum: 1 });
-        let mut node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(2)));
-        assert_eq!(node.height(), 1);
-        assert_eq!(node.info(), ListInfo { count: 2, sum: 3 });
-        for i in 3..17 {
+        assert_eq!(node.height(), 0);
+        for i in 2..17 {
             node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
+            assert_eq!(node.info(), ListInfo { count: i, sum: i * (i+1) / 2 });
+            assert_eq!(node.height(), 1);
         }
-        assert_eq!(node.height(), 1);
-        assert_eq!(node.info(), ListInfo { count: 16, sum: 8 * 17 });
-        let node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(17)));
+        node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(17)));
+        assert_eq!(node.info(), ListInfo { count: 17, sum: 17 * 18 / 2 });
         assert_eq!(node.height(), 2);
-        assert_eq!(node.info(), ListInfo { count: 17, sum: 9 * 17 });
+    }
+
+    #[test]
+    fn concat() {
+        use super::{NodesPtr, Rc16};
+        let mut node = NodeRc::from_leaf(ListLeaf(0));
+        let nodes = (1..17).map(|i| NodeRc::from_leaf(ListLeaf(i))).collect();
+        node = NodeRc::concat(node, NodeRc::from_children(Rc16::new(nodes)));
+        assert_eq!(node.height(), 2);
+
+        let children = node.children();
+        assert_eq!(children.len(), 2);
+        for child_node in children {
+            assert!(child_node.children().len() >= 8);
+        }
     }
 
     // TODO more tests

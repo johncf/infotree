@@ -92,7 +92,7 @@ impl<'a, L, PI, CONF> fmt::Debug for Cursor<'a, L, PI, CONF>
             }
             write!(f, "{}: ", height)?;
             loop {
-                write!(f, "{:?} ", cursor.current().info())?;
+                write!(f, "{:?} ", cursor.current().children().len())?;
                 if cursor.right_sibling().is_none() {
                     if cursor.next_node().is_some() {
                         write!(f, "// ")?;
