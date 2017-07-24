@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use node::{Node, Rc16};
 use traits::{Info, Leaf, PathInfo, SubOrd};
 
@@ -24,7 +26,9 @@ pub struct ListPath {
     pub index: usize,
     pub run: usize,
 }
+#[derive(Clone, Copy)]
 pub struct ListIndex(pub usize);
+#[derive(Clone, Copy)]
 pub struct ListRun(pub usize);
 
 impl Leaf for ListLeaf {
@@ -60,8 +64,10 @@ impl PathInfo<ListInfo> for ListPath {
             run: self.run - curr.sum,
         }
     }
+}
 
-    fn identity() -> Self {
+impl Default for ListPath {
+    fn default() -> Self {
         ListPath {
             index: 0,
             run: 0,

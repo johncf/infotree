@@ -1,4 +1,4 @@
-use traits::{Info, Leaf};
+use traits::{Info, Leaf, PathInfo, SubOrd};
 
 use arrayvec::ArrayVec;
 
@@ -231,6 +231,45 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             }
         }
     }
+
+    /// The leaf satisfying `path_info.before < path_sub_tick <= path_info.after`
+    pub fn get_path_tick<PI, PS>(&self, path_start: PI, path_sub_tick: PS)
+        -> Option<(&L, Pos<L::Info, PI>)>
+        where PI: PathInfo<L::Info> + ::std::fmt::Debug,
+              PS: SubOrd<PI> + Copy,
+    {
+        let mut before = path_start;
+        match path_sub_tick.sub_cmp(&before) {
+            Ordering::Less | Ordering::Equal => return None,
+            _ => (),
+        }
+        let info = self.info();
+        let after = before.extend(info);
+        match path_sub_tick.sub_cmp(&after) {
+            Ordering::Greater => return None,
+            _ => (),
+        }
+        match *self {
+            Node::Internal(InternalVal { ref nodes, .. }) => {
+                for node in nodes.iter() {
+                    let info = node.info();
+                    match node.get_path_tick(before, path_sub_tick) {
+                        Some(res) => return Some(res),
+                        None => before = before.extend(info),
+                    }
+                }
+                unreachable!();
+            }
+            Node::Leaf(LeafVal { ref val, .. }) => Some((val, Pos { info, before, after })),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Pos<I: Info, PI: PathInfo<I>> {
+    info: I,
+    before: PI,
+    after: PI,
 }
 
 /// This implementation is for testing and benchmarking purposes. This panics if the iterator is
@@ -422,6 +461,22 @@ mod tests {
         assert_eq!(children.len(), 2);
         for child_node in children {
             assert!(child_node.children().len() >= 8);
+        }
+    }
+
+    #[test]
+    fn path_get() {
+        let mut node = NodeRc::from_leaf(ListLeaf(0));
+        for i in 1..16 {
+            node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
+        }
+        for i in 0..16 {
+            println!("{}", i);
+            let (leaf, pos) = node.get_path_tick(ListPath::default(), ListIndex(i + 1)).unwrap();
+            assert_eq!(leaf, &ListLeaf(i));
+            assert_eq!(pos.info, ListInfo { count: 1, sum: i });
+            assert_eq!(pos.before, ListPath { index: i, run: i.wrapping_sub(1)*i/2 });
+            assert_eq!(pos.after, ListPath { index: i + 1, run: i*(i+1)/2 });
         }
     }
 

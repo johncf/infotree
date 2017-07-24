@@ -25,11 +25,6 @@ pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
     ///
     /// `c0.extend(x).extend_inv(x) == c0`
     fn extend_inv(self, curr: RHS) -> Self;
-
-    /// The identity value of `extend` operation. I.e., the following condition should hold:
-    ///
-    /// `c0.extend(identity) == c0.extend_inv(identity) == c0`
-    fn identity() -> Self;
 }
 
 /// Substructure ordering.
@@ -62,9 +57,6 @@ impl<T> PathInfo<T> for () where T: Info {
 
     #[inline]
     fn extend_inv(self, _: T) { }
-
-    #[inline]
-    fn identity() { }
 }
 
 impl PathInfo for usize {
@@ -73,9 +65,6 @@ impl PathInfo for usize {
 
     #[inline]
     fn extend_inv(self, other: usize) -> usize { self - other }
-
-    #[inline]
-    fn identity() -> usize { 0 }
 }
 
 // Implement `SubOrd<T>` for all fully ordered `T`.
