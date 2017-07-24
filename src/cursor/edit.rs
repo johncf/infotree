@@ -811,20 +811,31 @@ impl<L, PI, CONF> FromIterator<L> for CursorMut<L, PI, CONF>
 {
     fn from_iter<J: IntoIterator<Item=L>>(iter: J) -> Self {
         let mut curs = CursorMut::new();
-        let mut iter = iter.into_iter().map(Node::from_leaf);
+        curs.extend(iter);
+        curs
+    }
+}
 
+impl<L, PI, CONF> Extend<L> for CursorMut<L, PI, CONF>
+    where L: Leaf,
+          PI: PathInfo<L::Info>,
+          CONF: CMutConf<L, PI>,
+{
+    fn extend<I>(&mut self, iter: I)
+        where I: IntoIterator<Item=L>
+    {
+        self.reset();
+        let mut iter = iter.into_iter().map(Node::from_leaf);
         loop {
             let nodes = iter.by_ref()
                             .take(<CONF::Ptr as NodesPtr<L>>::max_size())
                             .collect::<ArrayVec<<CONF::Ptr as NodesPtr<L>>::Array>>();
             if nodes.len() > 0 {
-                // TODO investigate `cursormut_insert` benchmark slowdown (git blame this line)
-                curs.insert(Node::from_children(<CONF::Ptr as NodesPtr<L>>::new(nodes)), true);
+                self.insert(Node::from_children(<CONF::Ptr as NodesPtr<L>>::new(nodes)), true);
             } else {
                 break;
             }
         }
-        curs
     }
 }
 
