@@ -32,8 +32,8 @@ pub struct CMutStep<L, PI, CONF>
     where L: Leaf,
           CONF: CMutConf<L, PI>,
 {
-    nodes: CONF::Ptr,
-    idx: usize,
+    pub(crate) nodes: CONF::Ptr,
+    pub(crate) idx: usize,
     path_info: PI,
     __phantom: PhantomData<L>,
 }
@@ -71,7 +71,7 @@ impl<L, PI, CONF> CMutStep<L, PI, CONF>
           PI: PathInfo<L::Info>,
           CONF: CMutConf<L, PI>,
 {
-    fn new(nodes: CONF::Ptr, idx: usize, path_info: PI) -> Self {
+    pub(crate) fn new(nodes: CONF::Ptr, idx: usize, path_info: PI) -> Self {
         let __phantom = PhantomData;
         CMutStep { nodes, idx, path_info, __phantom }
     }
@@ -621,7 +621,7 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
           PI: PathInfo<L::Info>,
           CONF: CMutConf<L, PI>,
 {
-    fn insert_simple(&mut self, mut newnode: Node<L, CONF::Ptr>, after: bool) {
+    pub(crate) fn insert_simple(&mut self, mut newnode: Node<L, CONF::Ptr>, after: bool) {
         if self.is_empty() {
             self.cur_node = newnode;
             return;

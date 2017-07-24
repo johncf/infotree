@@ -4,19 +4,24 @@
 
 extern crate test;
 extern crate infotree;
+extern crate im;
 
 use infotree::cursor::CursorMut;
 use infotree::cursor::conf::{Arc33M, Rc33M, Box33M};
 use infotree::node::{Node, Arc16, Rc16, Box16};
 use infotree::traits::Leaf;
+use infotree::list::List;
 
-type NodeArc<L> = Node<L, Arc16<L>>;
-type NodeRc<L> = Node<L, Rc16<L>>;
+use im::list::List as ImList;
+use im::conslist::ConsList;
+
 type NodeBox<L> = Node<L, Box16<L>>;
 
 type CursorMutArc<L> = CursorMut<L, (), Arc33M>;
 type CursorMutRc<L> = CursorMut<L, (), Rc33M>;
 type CursorMutBox<L> = CursorMut<L, (), Box33M>;
+
+type ListArc<T> = List<T, Arc33M>;
 
 use test::Bencher;
 
@@ -112,16 +117,46 @@ fn cursormut_insert_box(b: &mut Bencher) {
 }
 
 #[bench]
-fn node_collect_arc(b: &mut Bencher) {
+fn list_insert_arc(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).map(|e| TestLeaf(e)).collect::<NodeArc<_>>()
+        let mut list = ListArc::new();
+        for i in 0..TOTAL {
+            list.push(i);
+        }
+        list
     })
 }
 
 #[bench]
-fn node_collect_rc(b: &mut Bencher) {
+fn list_insert_cloned_arc(b: &mut Bencher) {
     b.iter(|| {
-        (0..TOTAL).map(|e| TestLeaf(e)).collect::<NodeRc<_>>()
+        let mut list = ListArc::new();
+        for i in 0..TOTAL {
+            let mut list2 = list.clone();
+            list2.push(i);
+            list = list2;
+        }
+        list
+    })
+}
+
+#[bench]
+fn im_list_cons(b: &mut Bencher) {
+    b.iter(|| {
+        let mut l = ImList::new();
+        for i in 0..TOTAL {
+            l = l.cons(i)
+        }
+    })
+}
+
+#[bench]
+fn im_conslist_cons(b: &mut Bencher) {
+    b.iter(|| {
+        let mut l = ConsList::new();
+        for i in 0..TOTAL {
+            l = l.cons(i)
+        }
     })
 }
 
@@ -138,6 +173,28 @@ fn node_concat_box(b: &mut Bencher) {
         let mut node = NodeBox::from_leaf(TestLeaf(0));
         for i in 1..TOTAL {
             node = NodeBox::concat(node, NodeBox::from_leaf(TestLeaf(i)));
+        }
+        node
+    })
+}
+
+#[bench]
+fn node_concat_cursor_box(b: &mut Bencher) {
+    b.iter(|| {
+        let mut node = NodeBox::from_leaf(TestLeaf(0));
+        for i in 1..TOTAL {
+            node = NodeBox::concat_with_cursor::<Box33M>(node, NodeBox::from_leaf(TestLeaf(i)));
+        }
+        node
+    })
+}
+
+#[bench]
+fn node_concat_steps_box(b: &mut Bencher) {
+    b.iter(|| {
+        let mut node = NodeBox::from_leaf(TestLeaf(0));
+        for i in 1..TOTAL {
+            node = NodeBox::concat_with_steps::<Box33M>(node, NodeBox::from_leaf(TestLeaf(i)));
         }
         node
     })
