@@ -31,7 +31,6 @@ pub struct ListView<'a, T, CONF>
           CONF::Ptr: 'a,
 {
     inner: Cursor<'a, ListLeaf<T>, ListIndex, CONF>,
-    len_cache: usize,
 }
 
 impl<T, CONF> List<T, CONF>
@@ -174,12 +173,11 @@ impl<'a, T, CONF> ListView<'a, T, CONF>
     fn from_node(node: &'a Node<ListLeaf<T>, CONF::Ptr>) -> Self {
         ListView {
             inner: Cursor::new(node),
-            len_cache: node.info(),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.len_cache
+        self.inner.root().info()
     }
 
     pub fn get(&mut self, index: usize) -> Option<&T> {
@@ -201,7 +199,8 @@ impl<'a, T, CONF> ListView<'a, T, CONF>
     }
 
     pub fn last(&mut self) -> &T {
-        &self.inner.goto_max(self.len_cache).unwrap().0
+        let len = self.len();
+        &self.inner.goto_max(len).unwrap().0
     }
 
     pub fn iter(&self) -> Iter<'a, T, CONF> {
@@ -214,10 +213,11 @@ impl<'a, T, CONF> ListView<'a, T, CONF>
             Bound::Excluded(i) => i.checked_add(1).unwrap(),
             Bound::Unbounded => 0,
         };
+        let len = self.len();
         let end = match end {
-            Bound::Included(i) => i.checked_add(1).unwrap(),
-            Bound::Excluded(i) => i,
-            Bound::Unbounded => self.len_cache,
+            Bound::Included(i) if i < len => i.checked_add(1).unwrap(),
+            Bound::Excluded(i) if i <= len => i,
+            _ => len,
         };
         Iter {
             inner: Cursor::new(self.inner.root()),
@@ -235,7 +235,6 @@ impl<'a, T, CONF> Clone for ListView<'a, T, CONF>
     fn clone(&self) -> Self {
         ListView {
             inner: self.inner.clone(),
-            len_cache: self.len_cache,
         }
     }
 }
@@ -257,15 +256,12 @@ impl<'a, T, CONF> Iterator for Iter<'a, T, CONF>
 
     fn next(&mut self) -> Option<&'a T> {
         if self.start < self.end {
-            if self.inner.goto_min(self.start).is_some() {
-                let path = self.inner.path_info();
-                if path == self.start {
-                    self.start += 1;
-                    return self.inner.leaf().map(|l| &l.0);
-                }
-            }
+            let ret = self.inner.goto_min(self.start).unwrap();
+            self.start += 1;
+            Some(&ret.0)
+        } else {
+            None
         }
-        None
     }
 }
 
@@ -273,17 +269,13 @@ impl<'a, T, CONF> DoubleEndedIterator for Iter<'a, T, CONF>
     where T: Clone + 'a, CONF: CConf<'a, ListLeaf<T>, ListIndex>,
 {
     fn next_back(&mut self) -> Option<&'a T> {
-        use traits::PathInfo;
         if self.start < self.end {
-            if self.inner.goto_max(self.end).is_some() {
-                let path = self.inner.path_info().extend(self.inner.current().info());
-                if path == self.end {
-                    self.end -= 1;
-                    return self.inner.leaf().map(|l| &l.0);
-                }
-            }
+            let ret = self.inner.goto_max(self.end).unwrap();
+            self.end -= 1;
+            Some(&ret.0)
+        } else {
+            None
         }
-        None
     }
 }
 
