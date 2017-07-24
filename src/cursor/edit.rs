@@ -3,7 +3,7 @@ use super::nav::CursorNav;
 use traits::{Leaf, PathInfo, SubOrd};
 use node::{Node, NodesPtr, insert_maybe_split};
 
-use std::fmt;
+use std::{fmt, mem};
 use std::iter::FromIterator;
 use std::marker::PhantomData;
 
@@ -621,7 +621,7 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
           PI: PathInfo<L::Info>,
           CONF: CMutConf<L, PI>,
 {
-    fn insert_simple(&mut self, mut newnode: Node<L, CONF::Ptr>, mut after: bool) {
+    fn insert_simple(&mut self, mut newnode: Node<L, CONF::Ptr>, after: bool) {
         if self.is_empty() {
             self.cur_node = newnode;
             return;
@@ -663,9 +663,11 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
                         maybe_split = insert_maybe_split(nodes, *idx, newnode);
                     }
                     // now cur_node is never
-                    if let Some(split_node) = maybe_split {
-                        newnode = split_node;
-                        after = true;
+                    if let Some(mut split_nodes) = maybe_split {
+                        if !after {
+                            mem::swap(&mut split_nodes, nodes);
+                        }
+                        newnode = Node::from_children(split_nodes);
                         // the only way out of match without returning
                     } else {
                         let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);

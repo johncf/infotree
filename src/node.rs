@@ -177,10 +177,12 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     let children2 = NP::make_mut(&mut children2);
                     if h1 == h2 - 1 && node1.has_min_size() {
                         insert_maybe_split(children2, 0, node1)
+                            .map(|split_children| Node::from_children(split_children))
                     } else {
                         let newnode2 = Node::concat(node1, children2.remove(0).unwrap());
                         if newnode2.height() == h2 - 1 {
                             insert_maybe_split(children2, 0, newnode2)
+                                .map(|split_children| Node::from_children(split_children))
                         } else {
                             debug_assert_eq!(newnode2.height(), h2);
                             let mut newchildren = newnode2.into_children_must();
@@ -217,11 +219,13 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     let children1 = NP::make_mut(&mut children1);
                     if h2 == h1 - 1 && node2.has_min_size() {
                         insert_maybe_split(children1, len1, node2)
+                            .map(|split_children| Node::from_children(split_children))
                     } else {
                         let newnode1 = Node::concat(children1.pop().unwrap(), node2);
                         let len1 = len1 - 1;
                         if newnode1.height() == h1 - 1 {
                             insert_maybe_split(children1, len1, newnode1)
+                                .map(|split_children| Node::from_children(split_children))
                         } else {
                             debug_assert_eq!(newnode1.height(), h1);
                             let mut newchildren = newnode1.into_children_must();
@@ -309,7 +313,7 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     nodes: &mut ArrayVec<NP::Array>,
     idx: usize,
     newnode: Node<L, NP>
-) -> Option<Node<L, NP>> {
+) -> Option<NP> {
     debug_assert!(newnode.has_min_size());
 
     if nodes.len() < NP::max_size() {
@@ -322,7 +326,7 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
         let mut right: ArrayVec<_> = nodes.drain(n_left..).collect();
         let _res = right.push(extra);
         debug_assert!(_res.is_none());
-        Some(Node::from_children(NP::new(right)))
+        Some(NP::new(right))
     }
 }
 
