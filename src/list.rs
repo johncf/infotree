@@ -305,33 +305,38 @@ impl<'a, T, CONF> Clone for Iter<'a, T, CONF>
 #[cfg(test)]
 mod tests {
     use super::List;
+    use test_help::*;
 
     #[test]
     fn from_iter() {
-        let mut list: List<_> = (0..256).collect();
-        for i in 0..256 {
+        let total = rand_usize(2048) + 1;
+        println!("total: {}", total);
+        let mut list: List<_> = (0..total).collect();
+        for i in 0..total {
             assert_eq!(list.get(i), Some(&i));
         }
     }
 
     #[test]
     fn view_iter() {
-        let mut list: List<_> = (0..256).collect();
+        let total = rand_usize(2048) + 6;
+        println!("total: {}", total);
+        let mut list: List<_> = (0..total).collect();
         let view = list.view().unwrap();
+        let mut iter = view.iter().cloned();
+        assert_eq!(iter.next(), Some(0));
+        assert_eq!(iter.next_back(), Some(total - 1));
+        assert_eq!(iter.next(), Some(1));
+        assert_eq!(iter.next_back(), Some(total - 2));
+        assert_eq!(iter.next_back(), Some(total - 3));
+        assert_eq!(iter.next(), Some(2));
         let mut iter = view.iter();
-        assert_eq!(iter.next(), Some(&0));
-        assert_eq!(iter.next_back(), Some(&255));
-        assert_eq!(iter.next(), Some(&1));
-        assert_eq!(iter.next_back(), Some(&254));
-        assert_eq!(iter.next_back(), Some(&253));
-        assert_eq!(iter.next(), Some(&2));
-        let mut iter = view.iter();
-        for i in 0..256 {
+        for i in 0..total {
             assert_eq!(iter.next(), Some(&i));
         }
         assert_eq!(iter.next(), None);
         let mut iter = view.iter();
-        for i in (0..256).rev() {
+        for i in (0..total).rev() {
             assert_eq!(iter.next_back(), Some(&i));
         }
         assert_eq!(iter.next(), None);
@@ -339,14 +344,17 @@ mod tests {
 
     #[test]
     fn push_pop() {
-        let mut list: List<_> = (0..242).collect();
-        for i in 242..256 {
+        let total = rand_usize(2048);
+        let more = rand_usize(2048);
+        println!("total: {}, more: {}", total, more);
+        let mut list: List<_> = (0..total).collect();
+        for i in total..total + more {
             list.push(i);
         }
         for (i, j) in list.view().unwrap().iter().enumerate() {
             assert_eq!(i, *j);
         }
-        for i in (0..256).rev() {
+        for i in (0..total + more).rev() {
             assert_eq!(list.len(), i + 1);
             assert_eq!(list.pop(), Some(i));
         }
@@ -354,11 +362,33 @@ mod tests {
 
     #[test]
     fn extend() {
-        // TODO
+        let total = rand_usize(2048) + 1;
+        let more = rand_usize(2048);
+        println!("total: {}, more: {}", total, more);
+        let mut list: List<_> = (0..total).collect();
+        assert_eq!(list.get(0), Some(&0));
+        list.extend(total..total + more);
+        for (i, j) in list.view().unwrap().iter().enumerate() {
+            assert_eq!(i, *j);
+        }
     }
 
     #[test]
     fn split_off() {
-        // TODO
+        let total = rand_usize(2048) + 1;
+        let split_at = rand_usize(total);
+        println!("total: {}, split_at: {}", total, split_at);
+        let mut list: List<_> = (0..total).collect();
+        let mut split_list = list.split_off(split_at);
+        if let Some(view) = list.view() {
+            for (i, j) in view.iter().enumerate() {
+                assert_eq!(i, *j);
+            }
+        } else {
+            assert_eq!(split_at, 0);
+        }
+        for (i, j) in split_list.view().unwrap().iter().enumerate() {
+            assert_eq!(split_at + i, *j);
+        }
     }
 }
