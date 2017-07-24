@@ -36,7 +36,15 @@ pub struct ListView<'a, T, CONF>
 impl<T, CONF> List<T, CONF>
     where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
 {
-    pub fn new() -> List<T, CONF> {
+    fn from_node(node: Node<ListLeaf<T>, CONF::Ptr>) -> Self {
+        let len = node.info();
+        List {
+            inner: CursorMut::from_node(node),
+            len_cache: len,
+        }
+    }
+
+    pub fn new() -> Self {
         List {
             inner: CursorMut::new(),
             len_cache: 0,
@@ -113,8 +121,10 @@ impl<T, CONF> List<T, CONF>
         self.inner.goto_max(self.len_cache).map(|l| &l.0)
     }
 
-    pub fn split_off(&mut self, _index: usize) -> List<T> {
-        unimplemented!()
+    pub fn split_off(&mut self, index: usize) -> Self {
+        self.inner.goto_min(index).expect("Index out of bounds");
+        let split_node = self.inner.split_off().unwrap();
+        List::from_node(split_node)
     }
 }
 
@@ -340,5 +350,15 @@ mod tests {
             assert_eq!(list.len(), i + 1);
             assert_eq!(list.pop(), Some(i));
         }
+    }
+
+    #[test]
+    fn extend() {
+        // TODO
+    }
+
+    #[test]
+    fn split_off() {
+        // TODO
     }
 }
