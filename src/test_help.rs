@@ -1,4 +1,3 @@
-use cursor::{Cursor, CursorMut};
 use node::{Node, Rc16};
 use traits::{Info, Leaf, PathInfo, SubOrd};
 
@@ -7,11 +6,6 @@ use std::cmp;
 pub fn rand_usize(max: usize) -> usize {
     ::rand::random::<usize>() % max
 }
-
-/// A useful type alias for easy initialization of `Cursor`.
-pub type CursorT<'a, L> = Cursor<'a, L, ()>;
-
-pub type CursorMutT<L> = CursorMut<L, ()>;
 
 /// A useful type alias for easy initialization of `Node`.
 pub type NodeRc<L> = Node<L, Rc16<L>>;
@@ -143,9 +137,3 @@ impl SubOrd<SetInfo> for MaxLeaf {
         self.0.cmp(&rhs.max)
     }
 }
-
-//#[test]
-//fn print() {
-//    use ::std::mem; use ::{CursorMut};
-//    panic!("printed {}", mem::size_of::<CursorMut<ListLeaf, usize>>());
-//}

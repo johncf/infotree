@@ -1,7 +1,6 @@
 use traits::{Info, Leaf};
 
 use arrayvec::ArrayVec;
-use mines::boom;
 
 use std::cmp::{self, Ordering};
 use std::iter::FromIterator;
@@ -47,8 +46,6 @@ pub enum Node<L: Leaf, NP> {
     Internal(InternalVal<L, NP>),
     #[doc(hidden)]
     Leaf(LeafVal<L>),
-    #[doc(hidden)]
-    Never(NeverVal), // only for use with CursorMut
 }
 
 #[doc(hidden)]
@@ -65,10 +62,6 @@ pub struct LeafVal<L: Leaf> {
     info: L::Info,
     val: L,
 }
-
-#[doc(hidden)]
-#[derive(Clone)]
-pub struct NeverVal(());
 
 impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     #[inline]
@@ -90,7 +83,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match self {
             Node::Internal(_) => Err(self),
             Node::Leaf(LeafVal { val, .. }) => Ok(val),
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -99,7 +91,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match self {
             Node::Internal(InternalVal { nodes, .. }) => Ok(nodes),
             Node::Leaf(_) => Err(self),
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -108,7 +99,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Node::Internal(InternalVal { info, .. })
                 | Node::Leaf(LeafVal { info, .. }) => info,
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -116,7 +106,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Node::Internal(ref int) => int.height,
             Node::Leaf(_) => 0,
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -124,7 +113,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Node::Internal(_) => false,
             Node::Leaf(_) => true,
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -135,7 +123,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Node::Internal(ref int) => &*int.nodes,
             Node::Leaf(_) => &[],
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -144,7 +131,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Node::Internal(_) => None,
             Node::Leaf(ref leaf) => Some(&leaf.val),
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -330,11 +316,6 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     }
 }
 
-pub enum TraverseError {
-    AllFalse,
-    IsLeaf,
-}
-
 impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
     fn summarize(nodes: &NP) -> (L::Info, usize) {
         let height = nodes[0].height() + 1;
@@ -349,10 +330,6 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
     pub(crate) fn from_children(nodes: NP) -> Self {
         let (info, height) = Self::summarize(&nodes);
         InternalVal { info, height, nodes }
-    }
-
-    pub(crate) fn info(&self) -> L::Info {
-        self.info
     }
 
     // Returns whether `self` was merged with `other`. If `true`, `other` will have zero children
@@ -389,7 +366,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Node::Internal(ref mut int) => int,
             Node::Leaf(_) => unreachable!("buggy internal_mut_must call"),
-            Node::Never(_) => unsafe { boom("Never!") },
         }
     }
 
@@ -404,20 +380,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Node::Internal(ref int) => int.nodes.len() >= NP::max_size()/2,
             Node::Leaf(_) => true,
-            Node::Never(_) => unsafe { boom("Never!") },
         }
-    }
-
-    pub(crate) fn never_take(&mut self) -> Node<L, NP> {
-        let node = mem::replace(self, Node::never());
-        debug_assert!(!node.is_never());
-        node
-    }
-
-    // Swaps `self` with `node`. Exactly one of the nodes being swapped must be a never node.
-    pub(crate) fn never_swap(&mut self, other: &mut Node<L, NP>) {
-        debug_assert_eq!(self.is_never(), !other.is_never());
-        mem::swap(self, other);
     }
 
     pub(crate) fn merge_two(node1: Node<L, NP>, node2: Node<L, NP>) -> Node<L, NP> {
@@ -425,18 +388,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         nodes.push(node1);
         nodes.push(node2);
         Node::from_children(NP::new(nodes))
-    }
-
-    pub(crate) fn never() -> Node<L, NP> {
-        Node::Never(NeverVal(()))
-    }
-
-    // only do debug_assert with this function
-    pub(crate) fn is_never(&self) -> bool {
-        match *self {
-            Node::Never(_) => true,
-            _ => false,
-        }
     }
 }
 

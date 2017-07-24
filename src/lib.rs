@@ -9,7 +9,6 @@ extern crate mines;
 #[macro_use]
 mod macros;
 
-pub mod cursor;
 pub mod node;
 pub mod traits;
 
