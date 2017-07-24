@@ -36,7 +36,7 @@ pub struct ListView<'a, T, CONF>
 impl<T, CONF> List<T, CONF>
     where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
 {
-    pub fn new() -> List<T> {
+    pub fn new() -> List<T, CONF> {
         List {
             inner: CursorMut::new(),
             len_cache: 0,
@@ -144,10 +144,13 @@ impl<T, CONF> Clone for List<T, CONF>
 impl<T, CONF> Extend<T> for List<T, CONF>
     where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
 {
-    fn extend<I>(&mut self, _iter: I)
+    fn extend<I>(&mut self, iter: I)
         where I: IntoIterator<Item=T>
     {
-        unimplemented!()
+        let iter = iter.into_iter().map(|e| ListLeaf(e));
+        self.inner.extend(iter);
+        self.inner.reset();
+        self.len_cache = self.inner.current().map(|n| n.info()).unwrap_or(0);
     }
 }
 
@@ -155,11 +158,9 @@ impl<T, CONF> FromIterator<T> for List<T, CONF>
     where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
 {
     fn from_iter<I: IntoIterator<Item=T>>(iter: I) -> Self {
-        let iter = iter.into_iter().map(|e| ListLeaf(e));
-        let mut inner: CursorMut<_, ListIndex, _> = iter.collect();
-        inner.reset();
-        let len_cache = inner.current().map(|n| n.info()).unwrap_or(0);
-        List { inner, len_cache }
+        let mut ret = List::new();
+        ret.extend(iter);
+        ret
     }
 }
 
