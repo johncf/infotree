@@ -179,43 +179,6 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
         self.steps.last().map(|cstep| (cstep.idx, cstep.nodes.len() - cstep.idx - 1))
     }
 
-    /// Descend the tree once, on the child for which `f` returns `true`.
-    ///
-    /// Returns `None` if cursor is empty or is at a leaf node, or if `f` returned `false` on all
-    /// children.
-    ///
-    /// The arguments to `f` are treated exactly the same as in [`Node::path_traverse`].
-    ///
-    /// Panics if tree depth is greater than 8.
-    ///
-    /// [`Node::path_traverse`]: ../enum.Node.html#method.path_traverse
-    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&Node<L, CONF::Ptr>>
-        where F: FnMut(PI, L::Info, usize, usize) -> bool
-    {
-        match self.take_current() {
-            Some(cur_node) => {
-                let res = if reversed {
-                    cur_node.path_traverse_rev(self.path_info(), f)
-                } else {
-                    cur_node.path_traverse(self.path_info(), f)
-                }.map(|(index, path_info, _)| (index, path_info));
-
-                match res {
-                    Ok((index, path_info)) => {
-                        self.descend_raw(cur_node.into_children_must(), index, path_info);
-                        debug_assert!(!self.cur_node.is_never());
-                        Some(&self.cur_node)
-                    }
-                    Err(_) => {
-                        self.cur_node = cur_node;
-                        None
-                    },
-                }
-            }
-            None => None, // empty cursor
-        }
-    }
-
     pub fn reset(&mut self) {
         while self.ascend().is_some() {}
     }
@@ -226,18 +189,48 @@ impl<L, PI, CONF> CursorMut<L, PI, CONF>
                 self.ascend_raw(nodes, idx);
                 Some(&self.cur_node)
             }
-            None => { // cur_node is the root (or empty)
-                None
-            }
+            None => None, // cur_node is the root (or empty)
         }
     }
 
     pub fn descend_first(&mut self) -> Option<&Node<L, CONF::Ptr>> {
-        self.descend_by(|_, _, _, _| true, false)
+        match self.take_current() {
+            Some(cur_node) => {
+                let path_info = self.path_info();
+                match cur_node.into_children() {
+                    Ok(nodes) => {
+                        self.descend_raw(nodes, 0, path_info);
+                        Some(&self.cur_node)
+                    }
+                    Err(mut cur_node) => {
+                        self.cur_node.never_swap(&mut cur_node);
+                        None
+                    }
+                }
+            }
+            None => None, // empty cursor
+        }
     }
 
     pub fn descend_last(&mut self) -> Option<&Node<L, CONF::Ptr>> {
-        self.descend_by(|_, _, _, _| true, true)
+        match self.take_current() {
+            Some(cur_node) => {
+                let path_info = self.path_info().extend(cur_node.info());
+                match cur_node.into_children() {
+                    Ok(nodes) => {
+                        let lastidx = nodes.len() - 1;
+                        let lastinfo = nodes[lastidx].info();
+                        self.descend_raw(nodes, lastidx, path_info.extend_inv(lastinfo));
+                        Some(&self.cur_node)
+                    }
+                    Err(mut cur_node) => {
+                        self.cur_node.never_swap(&mut cur_node);
+                        None
+                    }
+                }
+            }
+            None => None, // empty cursor
+        }
     }
 
     pub fn left_sibling(&mut self) -> Option<&Node<L, CONF::Ptr>> {

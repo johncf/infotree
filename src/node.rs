@@ -1,4 +1,4 @@
-use traits::{Info, Leaf, PathInfo};
+use traits::{Info, Leaf};
 
 use arrayvec::ArrayVec;
 use mines::boom;
@@ -146,80 +146,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             Node::Leaf(ref leaf) => Some(&leaf.val),
             Node::Never(_) => unsafe { boom("Never!") },
         }
-    }
-
-    /// Traverse this node conditioned on a callback which is provided with info from each child node
-    /// from left to right. Returns `Err(_)` if called on a leaf or `f` returned all `false`.
-    ///
-    /// The three arguments to `f` are respectively: child node info, zero-based position from
-    /// left, and the remaining number of children (total - position - 1).
-    #[inline]
-    pub fn traverse<F>(&self, mut f: F) -> Result<(usize, &Node<L, NP>), TraverseError>
-        where F: FnMut(L::Info, usize, usize) -> bool
-    {
-        match *self {
-            Node::Internal(ref int) => {
-                let n_children = int.nodes.len();
-                for (idx, node) in int.nodes.iter().enumerate() {
-                    if f(node.info(), idx, n_children - idx - 1) {
-                        return Ok((idx, node));
-                    }
-                }
-                Err(TraverseError::AllFalse)
-            }
-            Node::Leaf(_) => Err(TraverseError::IsLeaf),
-            Node::Never(_) => unsafe { boom("Never!") },
-        }
-    }
-
-    /// Same as `traverse` but in reverse order.
-    #[inline]
-    pub fn traverse_rev<F>(&self, mut f: F) -> Result<(usize, &Node<L, NP>), TraverseError>
-        where F: FnMut(L::Info, usize, usize) -> bool
-    {
-        match *self {
-            Node::Internal(ref int) => {
-                let n_children = int.nodes.len();
-                for (idx, node) in int.nodes.iter().enumerate().rev() {
-                    if f(node.info(), idx, n_children - idx - 1) {
-                        return Ok((idx, node));
-                    }
-                }
-                Err(TraverseError::AllFalse)
-            }
-            Node::Leaf(_) => Err(TraverseError::IsLeaf),
-            Node::Never(_) => unsafe { boom("Never!") },
-        }
-    }
-
-    /// Similar to `traverse` with an extra argument for `f` which starts with `first`, and for
-    /// each child, `PathInfo::extend`-s it with the child's info.
-    pub fn path_traverse<PI, F>(&self, first: PI, mut f: F) -> Result<(usize, PI, &Node<L, NP>), TraverseError>
-        where PI: PathInfo<L::Info>,
-              F: FnMut(PI, L::Info, usize, usize) -> bool
-    {
-        let mut path_info = first;
-        self.traverse(|node_info, pos, rem| {
-            if f(path_info, node_info, pos, rem) { true }
-            else {
-                path_info = path_info.extend(node_info);
-                false
-            }
-        }).map(|(idx, child)| (idx, path_info, child))
-    }
-
-    /// Same as `path_traverse` but in reverse order. (`first` is initially extended with this
-    /// node's info, and for each child, `PathInfo::extend_inv`-s it with child's info. Thus `f`
-    /// will be called with `first` at the end, if `extend_inv` is correctly implemented.)
-    pub fn path_traverse_rev<PI, F>(&self, first: PI, mut f: F) -> Result<(usize, PI, &Node<L, NP>), TraverseError>
-        where PI: PathInfo<L::Info>,
-              F: FnMut(PI, L::Info, usize, usize) -> bool
-    {
-        let mut path_info = first.extend(self.info());
-        self.traverse_rev(|node_info, pos, rem| {
-            path_info = path_info.extend_inv(node_info);
-            f(path_info, node_info, pos, rem)
-        }).map(|(idx, child)| (idx, path_info, child))
     }
 
     /// Concatenates two nodes of possibly different heights into a single balanced node.

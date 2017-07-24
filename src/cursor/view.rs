@@ -163,32 +163,6 @@ impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
         }
     }
 
-    /// See [`CursorMut::descend_by`] for more details.
-    ///
-    /// [`CursorMut::descend_by`]: struct.CursorMut.html#method.descend_by
-    pub fn descend_by<F>(&mut self, f: F, reversed: bool) -> Option<&'a Node<L, CONF::Ptr>>
-        where F: FnMut(PI, L::Info, usize, usize) -> bool
-    {
-        let cur_node = self.current();
-        let res = if reversed {
-            cur_node.path_traverse_rev(self.path_info(), f)
-        } else {
-            cur_node.path_traverse(self.path_info(), f)
-        };
-        match res {
-            Ok((index, path_info, child)) => {
-                self.descend_raw(cur_node.children(), index, path_info);
-                Some(child)
-            }
-            Err(_) => None,
-        }
-    }
-
-    fn descend_raw(&mut self, nodes: &'a [Node<L, CONF::Ptr>], idx: usize, path_info: PI) {
-        // ArrayVec::push(e) returns Some(e) on overflow!
-        assert!(self.steps.push(CStep { nodes, idx, path_info }).is_none());
-    }
-
     pub fn reset(&mut self) {
         self.steps.clear();
     }
@@ -198,11 +172,35 @@ impl<'a, L, PI, CONF> Cursor<'a, L, PI, CONF>
     }
 
     pub fn descend_first(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
-        self.descend_by(|_, _, _, _| true, false)
+        let cur_node = self.current();
+        let path_info = self.path_info();
+        let nodes = cur_node.children();
+        if nodes.len() > 0 {
+            let ret_node = &nodes[0];
+            self.descend_raw(nodes, 0, path_info);
+            Some(ret_node)
+        } else {
+            None
+        }
     }
 
     pub fn descend_last(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
-        self.descend_by(|_, _, _, _| true, true)
+        let cur_node = self.current();
+        let path_info = self.path_info().extend(cur_node.info());
+        let nodes = cur_node.children();
+        if nodes.len() > 0 {
+            let lastidx = nodes.len() - 1;
+            let ret_node = &nodes[lastidx];
+            self.descend_raw(nodes, lastidx, path_info.extend_inv(ret_node.info()));
+            Some(ret_node)
+        } else {
+            None
+        }
+    }
+
+    fn descend_raw(&mut self, nodes: &'a [Node<L, CONF::Ptr>], idx: usize, path_info: PI) {
+        // ArrayVec::push(e) returns Some(e) on overflow!
+        assert!(self.steps.push(CStep { nodes, idx, path_info }).is_none());
     }
 
     pub fn left_sibling(&mut self) -> Option<&'a Node<L, CONF::Ptr>> {
