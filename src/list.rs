@@ -1,0 +1,394 @@
+use cursor::{Cursor, CursorMut};
+use cursor::conf::{CConf, CMutConf, Rc33M};
+use node::Node;
+use traits::Leaf;
+
+use std::collections::Bound;
+use std::iter::FromIterator;
+
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct ListLeaf<T: Clone>(T);
+
+type ListInfo = usize;
+type ListIndex = usize;
+
+impl<T: Clone> Leaf for ListLeaf<T> {
+    type Info = ListInfo;
+    fn compute_info(&self) -> ListInfo { 1 }
+}
+
+pub struct List<T, CONF=Rc33M>
+    where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
+{
+    inner: CursorMut<ListLeaf<T>, ListIndex, CONF>,
+    len_cache: usize,
+}
+
+pub struct ListView<'a, T, CONF>
+    where T: Clone + 'a,
+          CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+          CONF::Ptr: 'a,
+{
+    inner: Cursor<'a, ListLeaf<T>, ListIndex, CONF>,
+}
+
+impl<T, CONF> List<T, CONF>
+    where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
+{
+    fn from_node(node: Node<ListLeaf<T>, CONF::Ptr>) -> Self {
+        let len = node.info();
+        List {
+            inner: CursorMut::from_node(node),
+            len_cache: len,
+        }
+    }
+
+    pub fn new() -> Self {
+        List {
+            inner: CursorMut::new(),
+            len_cache: 0,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        debug_assert_eq!(self.inner.is_empty(), self.len_cache == 0);
+        self.inner.is_empty()
+    }
+
+    pub fn len(&mut self) -> usize {
+        self.inner.reset();
+        self.inner.current().map(|n| n.info()).unwrap_or(0)
+        //self.len_cache
+    }
+
+    pub fn insert(&mut self, index: usize, element: T) -> Result<(), T> {
+        let len = self.len();
+        if index == len {
+            self.push(element);
+        } else if index < len {
+            self.inner.goto_min(index);
+            self.inner.insert_leaf(ListLeaf(element), false);
+        } else {
+            return Err(element);
+        }
+        self.len_cache += 1;
+        Ok(())
+    }
+
+    pub fn remove(&mut self, _index: usize) -> Result<T, ()> {
+        unimplemented!()
+    }
+
+    pub fn push(&mut self, element: T) {
+        let len = self.len();
+        self.inner.goto_max(len);
+        self.inner.insert_leaf(ListLeaf(element), true);
+        self.len_cache += 1;
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        let len = self.len();
+        if len > 0 {
+            self.len_cache -= 1;
+            {
+                let leaf = self.inner.goto_max(len);
+                debug_assert!(leaf.is_some());
+            }
+            Some(self.inner.remove_leaf().unwrap().0)
+        } else {
+            None
+        }
+    }
+
+    pub fn append(&mut self, _other: &mut List<T>) {
+        unimplemented!()
+    }
+
+    pub fn clear(&mut self) {
+        self.inner = CursorMut::new();
+    }
+
+    pub fn get(&mut self, index: usize) -> Option<&T> {
+        self.inner.goto_min(index).map(|l| &l.0)
+    }
+
+    pub fn first(&mut self) -> Option<&T> {
+        self.inner.goto_min(0).map(|l| &l.0)
+    }
+
+    pub fn last(&mut self) -> Option<&T> {
+        self.inner.goto_max(self.len_cache).map(|l| &l.0)
+    }
+
+    pub fn split_off(&mut self, index: usize) -> Self {
+        self.inner.goto_min(index).expect("Index out of bounds");
+        let split_node = self.inner.split_off().unwrap();
+        List::from_node(split_node)
+    }
+}
+
+impl<'a, T, CONF> List<T, CONF>
+    where T: Clone + 'a,
+          CONF: CMutConf<ListLeaf<T>, ListIndex> + CConf<'a, ListLeaf<T>, ListIndex>,
+          CONF::Ptr: 'a,
+{
+    /// Returns `None` if empty.
+    pub fn view(&'a mut self) -> Option<ListView<'a, T, CONF>> {
+        self.inner.reset();
+        self.inner.current().map(|node| ListView::from_node(node))
+    }
+}
+
+impl<T, CONF> Clone for List<T, CONF>
+    where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
+{
+    fn clone(&self) -> Self {
+        List {
+            inner: self.inner.clone(),
+            len_cache: self.len_cache,
+        }
+    }
+}
+
+impl<T, CONF> Extend<T> for List<T, CONF>
+    where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
+{
+    fn extend<I>(&mut self, iter: I)
+        where I: IntoIterator<Item=T>
+    {
+        let iter = iter.into_iter().map(|e| ListLeaf(e));
+        self.inner.extend(iter);
+        self.inner.reset();
+        self.len_cache = self.inner.current().map(|n| n.info()).unwrap_or(0);
+    }
+}
+
+impl<T, CONF> FromIterator<T> for List<T, CONF>
+    where T: Clone, CONF: CMutConf<ListLeaf<T>, ListIndex>,
+{
+    fn from_iter<I: IntoIterator<Item=T>>(iter: I) -> Self {
+        let mut ret = List::new();
+        ret.extend(iter);
+        ret
+    }
+}
+
+// ListView ---------------------------------------------------------------
+
+impl<'a, T, CONF> ListView<'a, T, CONF>
+    where T: Clone + 'a,
+          CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+          CONF::Ptr: 'a,
+{
+    fn from_node(node: &'a Node<ListLeaf<T>, CONF::Ptr>) -> Self {
+        ListView {
+            inner: Cursor::new(node),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.root().info()
+    }
+
+    pub fn get(&mut self, index: usize) -> Option<&T> {
+        if index + 1 == self.len() {
+            return Some(self.last())
+        } else {
+            if self.inner.goto_min(index).is_some() {
+                let path = self.inner.path_info();
+                if path == index {
+                    return self.inner.leaf().map(|l| &l.0);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn first(&mut self) -> &T {
+        &self.inner.goto_min(0).unwrap().0
+    }
+
+    pub fn last(&mut self) -> &T {
+        let len = self.len();
+        &self.inner.goto_max(len).unwrap().0
+    }
+
+    pub fn iter(&self) -> Iter<'a, T, CONF> {
+        self.range(Bound::Unbounded, Bound::Unbounded)
+    }
+
+    pub fn range(&self, start: Bound<usize>, end: Bound<usize>) -> Iter<'a, T, CONF> {
+        let start = match start {
+            Bound::Included(i) => i,
+            Bound::Excluded(i) => i.checked_add(1).unwrap(),
+            Bound::Unbounded => 0,
+        };
+        let len = self.len();
+        let end = match end {
+            Bound::Included(i) if i < len => i.checked_add(1).unwrap(),
+            Bound::Excluded(i) if i <= len => i,
+            _ => len,
+        };
+        Iter {
+            inner: Cursor::new(self.inner.root()),
+            start: start,
+            end: end,
+        }
+    }
+}
+
+impl<'a, T, CONF> Clone for ListView<'a, T, CONF>
+    where T: Clone + 'a,
+          CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+          CONF::Ptr: 'a,
+{
+    fn clone(&self) -> Self {
+        ListView {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+pub struct Iter<'a, T, CONF>
+    where T: Clone + 'a,
+          CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+          CONF::Ptr: 'a,
+{
+    inner: Cursor<'a, ListLeaf<T>, ListIndex, CONF>,
+    start: usize,
+    end: usize,
+}
+
+impl<'a, T, CONF> Iterator for Iter<'a, T, CONF>
+    where T: Clone + 'a, CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+{
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<&'a T> {
+        if self.start < self.end {
+            let ret = self.inner.goto_min(self.start).unwrap();
+            self.start += 1;
+            Some(&ret.0)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, T, CONF> DoubleEndedIterator for Iter<'a, T, CONF>
+    where T: Clone + 'a, CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+{
+    fn next_back(&mut self) -> Option<&'a T> {
+        if self.start < self.end {
+            let ret = self.inner.goto_max(self.end).unwrap();
+            self.end -= 1;
+            Some(&ret.0)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a, T, CONF> Clone for Iter<'a, T, CONF>
+    where T: Clone + 'a, CONF: CConf<'a, ListLeaf<T>, ListIndex>,
+{
+    fn clone(&self) -> Self {
+        Iter {
+            inner: self.inner.clone(),
+            start: self.start,
+            end: self.end,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::List;
+    use test_help::*;
+
+    #[test]
+    fn from_iter() {
+        let total = rand_usize(2048) + 1;
+        println!("total: {}", total);
+        let mut list: List<_> = (0..total).collect();
+        for i in 0..total {
+            assert_eq!(list.get(i), Some(&i));
+        }
+    }
+
+    #[test]
+    fn view_iter() {
+        let total = rand_usize(2048) + 6;
+        println!("total: {}", total);
+        let mut list: List<_> = (0..total).collect();
+        let view = list.view().unwrap();
+        let mut iter = view.iter().cloned();
+        assert_eq!(iter.next(), Some(0));
+        assert_eq!(iter.next_back(), Some(total - 1));
+        assert_eq!(iter.next(), Some(1));
+        assert_eq!(iter.next_back(), Some(total - 2));
+        assert_eq!(iter.next_back(), Some(total - 3));
+        assert_eq!(iter.next(), Some(2));
+        let mut iter = view.iter();
+        for i in 0..total {
+            assert_eq!(iter.next(), Some(&i));
+        }
+        assert_eq!(iter.next(), None);
+        let mut iter = view.iter();
+        for i in (0..total).rev() {
+            assert_eq!(iter.next_back(), Some(&i));
+        }
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn push_pop() {
+        let total = rand_usize(2048);
+        let more = rand_usize(2048);
+        println!("total: {}, more: {}", total, more);
+        let mut list: List<_> = (0..total).collect();
+        for i in total..total + more {
+            list.push(i);
+        }
+        for (i, j) in list.view().unwrap().iter().enumerate() {
+            assert_eq!(i, *j);
+        }
+        for i in (0..total + more).rev() {
+            assert_eq!(list.len(), i + 1);
+            assert_eq!(list.pop(), Some(i));
+        }
+    }
+
+    #[test]
+    fn extend() {
+        let total = rand_usize(2048) + 1;
+        let more = rand_usize(2048);
+        println!("total: {}, more: {}", total, more);
+        let mut list: List<_> = (0..total).collect();
+        assert_eq!(list.get(0), Some(&0));
+        list.extend(total..total + more);
+        for (i, j) in list.view().unwrap().iter().enumerate() {
+            assert_eq!(i, *j);
+        }
+    }
+
+    #[test]
+    fn split_off() {
+        let total = rand_usize(2048) + 1;
+        let split_at = rand_usize(total);
+        println!("total: {}, split_at: {}", total, split_at);
+        let mut list: List<_> = (0..total).collect();
+        let mut split_list = list.split_off(split_at);
+        if let Some(view) = list.view() {
+            for (i, j) in view.iter().enumerate() {
+                assert_eq!(i, *j);
+            }
+        } else {
+            assert_eq!(split_at, 0);
+        }
+        for (i, j) in split_list.view().unwrap().iter().enumerate() {
+            assert_eq!(split_at + i, *j);
+        }
+    }
+}

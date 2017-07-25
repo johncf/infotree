@@ -1,4 +1,5 @@
 use traits::{Info, Leaf};
+use cursor::{CursorMut, conf as cconf};
 
 use arrayvec::ArrayVec;
 use mines::boom;
@@ -245,6 +246,199 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             }
         }
     }
+
+    pub fn concat_with_cursor<CONF>(mut node1: Node<L, NP>, mut node2: Node<L, NP>) -> Node<L, NP>
+        where CONF: cconf::CMutConf<L, ()> + cconf::PtrMark<L, Ptr=NP>,
+    {
+        let h1 = node1.height();
+        let h2 = node2.height();
+        match h1.cmp(&h2) {
+            Ordering::Less => {
+                unimplemented!()
+            }
+            Ordering::Equal => {
+                if node1.has_min_size() && node2.has_min_size() {
+                    Node::merge_two(node1, node2)
+                } else {
+                    if node1.internal_mut_must().try_merge_with(node2.internal_mut_must()) {
+                        node1
+                    } else {
+                        Node::merge_two(node1, node2)
+                    }
+                }
+            }
+            Ordering::Greater => {
+                let mut cmut1: CursorMut<L, (), CONF> = CursorMut::from_node(node1);
+                while cmut1.current().unwrap().height() > node2.height() {
+                    cmut1.descend_last();
+                }
+                cmut1.insert_simple(node2, true);
+                cmut1.into_root().unwrap()
+            }
+        }
+    }
+
+    pub fn concat_with_steps<CONF>(mut node1: Node<L, NP>, mut node2: Node<L, NP>) -> Node<L, NP>
+        where CONF: cconf::CMutConf<L, ()> + cconf::PtrMark<L, Ptr=NP>,
+    {
+        use cursor::CMutStep;
+
+        let h1 = node1.height();
+        let h2 = node2.height();
+
+        match h1.cmp(&h2) {
+            Ordering::Less => {
+                let mut steps = ArrayVec::<CONF::MutStepsBuf>::new();
+                let mut cur_node = node2;
+
+                while cur_node.height() > node1.height() {
+                    let mut cstep: CMutStep<L, (), CONF> = CMutStep::new(cur_node.into_children_must(), 0, ());
+                    cur_node = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut cstep.nodes)[0].never_take();
+                    steps.push(cstep);
+                }
+
+                loop {
+                    debug_assert_eq!(cur_node.height(), node1.height());
+                    match steps.last_mut() {
+                        Some(&mut CMutStep { ref mut nodes, idx, .. }) => {
+                            let maybe_split;
+                            {   let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
+                                if !node1.has_min_size() {
+                                    let merged = {
+                                        let (left_int, right_int) =
+                                            (node1.internal_mut_must(), cur_node.internal_mut_must());
+                                        left_int.try_merge_with(right_int)
+                                    };
+                                    if merged {
+                                        cur_node = node1;
+                                        break;
+                                    }
+                                }
+                                debug_assert!(!cur_node.is_never());
+                                cur_node.never_swap(&mut nodes[idx]);
+                                maybe_split = insert_maybe_split(nodes, idx, node1);
+                            }
+                            // now cur_node is never
+                            if let Some(mut split_nodes) = maybe_split {
+                                mem::swap(&mut split_nodes, nodes);
+                                node1 = Node::from_children(split_nodes);
+                                // the only way out of match without returning
+                            } else {
+                                let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
+                                cur_node.never_swap(&mut nodes[idx]);
+                                break;
+                            }
+                        }
+                        None => { // cur_node is the root
+                            if node1.internal_mut_must().try_merge_with(cur_node.internal_mut_must()) {
+                                cur_node = node1;
+                            } else {
+                                cur_node = Node::merge_two(node1, cur_node);
+                            }
+                            break;
+                        }
+                    }
+
+                    // ascend the tree (cur_node is never, nodes[idx] is valid)
+                    let CMutStep { nodes, .. } = steps.pop().unwrap();
+                    let parent = Node::from_children(nodes);
+                    cur_node = parent;
+                }
+                loop {
+                    debug_assert!(!cur_node.is_never());
+                    match steps.pop() {
+                        Some(CMutStep { mut nodes, idx, .. }) => {
+                            cur_node.never_swap(&mut <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes)[idx]);
+                            let parent = Node::from_children(nodes);
+                            cur_node = parent;
+                        }
+                        None => break,
+                    }
+                }
+                cur_node
+            },
+            Ordering::Equal => {
+                if node1.has_min_size() && node2.has_min_size() {
+                    Node::merge_two(node1, node2)
+                } else {
+                    if node1.internal_mut_must().try_merge_with(node2.internal_mut_must()) {
+                        node1
+                    } else {
+                        Node::merge_two(node1, node2)
+                    }
+                }
+            },
+            Ordering::Greater => {
+                let mut steps = ArrayVec::<CONF::MutStepsBuf>::new();
+                let mut cur_node = node1;
+
+                while cur_node.height() > node2.height() {
+                    let nodes = cur_node.into_children_must();
+                    let lastix = nodes.len() - 1;
+                    let mut cstep: CMutStep<L, (), CONF> = CMutStep::new(nodes, lastix, ());
+                    cur_node = <CONF::Ptr as NodesPtr<L>>::make_mut(&mut cstep.nodes)[lastix].never_take();
+                    steps.push(cstep);
+                }
+
+                loop {
+                    debug_assert_eq!(cur_node.height(), node2.height());
+                    match steps.last_mut() {
+                        Some(&mut CMutStep { ref mut nodes, ref mut idx, .. }) => {
+                            let maybe_split;
+                            {   let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
+                                if !node2.has_min_size() {
+                                    let merged = {
+                                        let (left_int, right_int) =
+                                            (cur_node.internal_mut_must(), node2.internal_mut_must());
+                                        left_int.try_merge_with(right_int)
+                                    };
+                                    if merged {
+                                        break;
+                                    }
+                                }
+                                debug_assert!(!cur_node.is_never());
+                                cur_node.never_swap(&mut nodes[*idx]);
+                                *idx += 1;
+                                maybe_split = insert_maybe_split(nodes, *idx, node2);
+                            }
+                            // now cur_node is never
+                            if let Some(split_nodes) = maybe_split {
+                                node2 = Node::from_children(split_nodes);
+                                // the only way out of match without returning
+                            } else {
+                                let nodes = <CONF::Ptr as NodesPtr<L>>::make_mut(nodes);
+                                cur_node.never_swap(&mut nodes[*idx]);
+                                break;
+                            }
+                        }
+                        None => { // cur_node is the root
+                            if !cur_node.internal_mut_must().try_merge_with(node2.internal_mut_must()) {
+                                cur_node = Node::merge_two(cur_node, node2);
+                            }
+                            break;
+                        }
+                    }
+
+                    // ascend the tree (cur_node is never, nodes[idx] is valid)
+                    let CMutStep { nodes, .. } = steps.pop().unwrap();
+                    let parent = Node::from_children(nodes);
+                    cur_node = parent;
+                }
+                loop {
+                    debug_assert!(!cur_node.is_never());
+                    match steps.pop() {
+                        Some(CMutStep { mut nodes, idx, .. }) => {
+                            cur_node.never_swap(&mut <CONF::Ptr as NodesPtr<L>>::make_mut(&mut nodes)[idx]);
+                            let parent = Node::from_children(nodes);
+                            cur_node = parent;
+                        }
+                        None => break,
+                    }
+                }
+                cur_node
+            }
+        }
+    }
 }
 
 /// This implementation is for testing and benchmarking purposes. This panics if the iterator is
@@ -465,6 +659,22 @@ mod tests {
         let mut node = NodeRc::from_leaf(ListLeaf(0));
         let nodes = (1..17).map(|i| NodeRc::from_leaf(ListLeaf(i))).collect();
         node = NodeRc::concat(node, NodeRc::from_children(Rc16::new(nodes)));
+        assert_eq!(node.height(), 2);
+
+        let children = node.children();
+        assert_eq!(children.len(), 2);
+        for child_node in children {
+            assert!(child_node.children().len() >= 8);
+        }
+    }
+
+    #[test]
+    fn concat_steps() {
+        use super::{NodesPtr, Rc16};
+        use cursor::conf::Rc33M;
+        let mut node = NodeRc::from_leaf(ListLeaf(0));
+        let nodes = (1..17).map(|i| NodeRc::from_leaf(ListLeaf(i))).collect();
+        node = NodeRc::concat_with_steps::<Rc33M>(node, NodeRc::from_children(Rc16::new(nodes)));
         assert_eq!(node.height(), 2);
 
         let children = node.children();
