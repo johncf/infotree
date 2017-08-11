@@ -1,4 +1,4 @@
-use traits::{Info, Leaf, PathInfo, SubOrd};
+use traits::{Info, Leaf, PathInfo};
 
 use arrayvec::ArrayVec;
 
@@ -232,44 +232,99 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         }
     }
 
-    /// The leaf satisfying `path_info.before < path_sub_tick <= path_info.after`
-    pub fn get_path_tick<PI, PS>(&self, path_start: PI, path_sub_tick: PS)
-        -> Option<(&L, Pos<L::Info, PI>)>
-        where PI: PathInfo<L::Info> + ::std::fmt::Debug,
-              PS: SubOrd<PI> + Copy,
+    /// Returns whether `path_before <= path_tick < path_before.extend(self.info)`.
+    pub fn contains_path_tick<PI>(&self, path_before: PI, path_tick: PI) -> bool
+        where PI: PathInfo<L::Info> + Ord,
     {
-        let mut before = path_start;
-        match path_sub_tick.sub_cmp(&before) {
-            Ordering::Less | Ordering::Equal => return None,
-            _ => (),
-        }
-        let info = self.info();
-        let after = before.extend(info);
-        match path_sub_tick.sub_cmp(&after) {
-            Ordering::Greater => return None,
-            _ => (),
-        }
-        match *self {
-            Node::Internal(InternalVal { ref nodes, .. }) => {
-                for node in nodes.iter() {
-                    let info = node.info();
-                    match node.get_path_tick(before, path_sub_tick) {
-                        Some(res) => return Some(res),
-                        None => before = before.extend(info),
-                    }
+        match path_before.cmp(&path_tick) {
+            Ordering::Less | Ordering::Equal => {
+                let info = self.info();
+                let path_after = path_before.extend(info);
+                match path_tick.cmp(&path_after) {
+                    Ordering::Less => true,
+                    _ => false,
                 }
-                unreachable!();
             }
-            Node::Leaf(LeafVal { ref val, .. }) => Some((val, Pos { info, before, after })),
+            _ => false,
         }
+    }
+
+    /// Fetch the leaf satisfying `contains_path_tick` condition.
+    pub fn get_path_tick<PI>(&self, path_start: PI, path_tick: PI) -> Option<LeafRef<L, PI>>
+        where PI: PathInfo<L::Info> + Ord,
+    {
+        fn __inner<L, NP, PI>(node: &Node<L, NP>, path_start: PI, path_tick: PI) -> LeafRef<L, PI>
+            where L: Leaf,
+                  NP: NodesPtr<L>,
+                  PI: PathInfo<L::Info> + Ord,
+        {
+            match *node {
+                Node::Internal(InternalVal { ref nodes, .. }) => {
+                    let mut before = path_start;
+                    for node in nodes.iter() {
+                        if !node.contains_path_tick(before, path_tick) {
+                            before = before.extend(node.info());
+                            continue;
+                        }
+                        return __inner(node, before, path_tick);
+                    }
+                    unreachable!();
+                }
+                Node::Leaf(LeafVal { ref val, .. }) =>
+                    LeafRef {
+                        leaf: val,
+                        info: node.info(),
+                        before: path_start,
+                        after: path_start.extend(node.info()),
+                    },
+            }
+        }
+        if self.contains_path_tick(path_start, path_tick) {
+            Some(__inner(self, path_start, path_tick))
+        } else {
+            None
+        }
+    }
+
+    /// Do `action` at leaf satisfying `contains_path_tick` condition. `action` will be called
+    /// with the leaf containing `path_tick` along with path info before that leaf, and it should
+    /// return the action to be taken at that leaf as a `LeafAction` object.
+    ///
+    /// Panics if `path_tick` was out of bounds w.r.t `path_start`.
+    pub fn action_path_tick<PI, F>(self, path_start: PI, path_tick: PI, action: F) -> ActionResult<L, NP>
+        where PI: PathInfo<L::Info> + Ord,
+              F: FnOnce(PI, L) -> LeafAction<L>,
+    {
+        unimplemented!();
     }
 }
 
 #[derive(Debug)]
-pub struct Pos<I: Info, PI: PathInfo<I>> {
-    info: I,
-    before: PI,
-    after: PI,
+pub struct LeafRef<'a, L: Leaf + 'a, PI: PathInfo<L::Info>> {
+    pub leaf: &'a L,
+    pub info: L::Info,
+    pub before: PI,
+    pub after: PI,
+}
+
+pub enum LeafAction<L: Leaf> {
+    Remove,
+    Replace(L),
+    Insert(L, L),
+    Split(L, Option<L>),
+}
+
+pub enum ActionResult<L: Leaf, NP: NodesPtr<L>> {
+    Empty,
+    Updated(Node<L, NP>),
+    Split(Node<L, NP>, Option<Node<L, NP>>),
+}
+
+enum NodeAction<L: Leaf, NP: NodesPtr<L>> {
+    Remove,
+    Replace(Node<L, NP>),
+    Insert(Node<L, NP>, Node<L, NP>),
+    Split(Node<L, NP>, Option<Node<L, NP>>),
 }
 
 /// This implementation is for testing and benchmarking purposes. This panics if the iterator is
@@ -472,11 +527,21 @@ mod tests {
         }
         for i in 0..16 {
             println!("{}", i);
-            let (leaf, pos) = node.get_path_tick(ListPath::default(), ListIndex(i + 1)).unwrap();
-            assert_eq!(leaf, &ListLeaf(i));
-            assert_eq!(pos.info, ListInfo { count: 1, sum: i });
-            assert_eq!(pos.before, ListPath { index: i, run: i.wrapping_sub(1)*i/2 });
-            assert_eq!(pos.after, ListPath { index: i + 1, run: i*(i+1)/2 });
+            let leaf_ref = node.get_path_tick(ListIndex(0), ListIndex(i)).unwrap();
+            assert_eq!(leaf_ref.leaf, &ListLeaf(i));
+            assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
+            assert_eq!(leaf_ref.before, ListIndex(i));
+            assert_eq!(leaf_ref.after, ListIndex(i + 1));
+        }
+        for i in 0..(15*16/2) {
+            println!("{}", i);
+            let leaf_ref = node.get_path_tick(ListRun(0), ListRun(i)).unwrap();
+            let val = leaf_ref.leaf.0;
+            assert!(val > 0);
+            assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: val });
+            assert_eq!(leaf_ref.before, ListRun((val-1)*val/2));
+            assert_eq!(leaf_ref.after, ListRun(val*(val+1)/2));
+            assert!(leaf_ref.before.0 <= i && i < leaf_ref.after.0);
         }
     }
 

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use node::{Node, Rc16};
-use traits::{Info, Leaf, PathInfo, SubOrd};
+use traits::{Info, Leaf, PathInfo};
 
 use std::cmp;
 
@@ -21,14 +21,9 @@ pub struct ListInfo {
     pub sum: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ListPath {
-    pub index: usize,
-    pub run: usize,
-}
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ListIndex(pub usize);
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ListRun(pub usize);
 
 impl Leaf for ListLeaf {
@@ -50,40 +45,23 @@ impl Info for ListInfo {
     }
 }
 
-impl PathInfo<ListInfo> for ListPath {
+impl PathInfo<ListInfo> for ListIndex {
     fn extend(self, prev: ListInfo) -> Self {
-        ListPath {
-            index: self.index + prev.count,
-            run: self.run + prev.sum,
-        }
+        ListIndex(self.0 + prev.count)
     }
 
     fn extend_inv(self, curr: ListInfo) -> Self {
-        ListPath {
-            index: self.index - curr.count,
-            run: self.run - curr.sum,
-        }
+        ListIndex(self.0 - curr.count)
     }
 }
 
-impl Default for ListPath {
-    fn default() -> Self {
-        ListPath {
-            index: 0,
-            run: 0,
-        }
+impl PathInfo<ListInfo> for ListRun {
+    fn extend(self, prev: ListInfo) -> Self {
+        ListRun(self.0 + prev.sum)
     }
-}
 
-impl SubOrd<ListPath> for ListIndex {
-    fn sub_cmp(&self, rhs: &ListPath) -> cmp::Ordering {
-        self.0.cmp(&rhs.index)
-    }
-}
-
-impl SubOrd<ListPath> for ListRun {
-    fn sub_cmp(&self, rhs: &ListPath) -> cmp::Ordering {
-        self.0.cmp(&rhs.run)
+    fn extend_inv(self, curr: ListInfo) -> Self {
+        ListRun(self.0 - curr.sum)
     }
 }
 
@@ -117,29 +95,5 @@ impl Info for SetInfo {
             min: cmp::min(self.min, other.min),
             max: cmp::max(self.max, other.max),
         }
-    }
-}
-
-impl SubOrd<SetInfo> for MinChar {
-    fn sub_cmp(&self, rhs: &SetInfo) -> cmp::Ordering {
-        self.0.cmp(&rhs.min.0)
-    }
-}
-
-impl SubOrd<SetInfo> for MaxChar {
-    fn sub_cmp(&self, rhs: &SetInfo) -> cmp::Ordering {
-        self.0.cmp(&rhs.max.0)
-    }
-}
-
-impl SubOrd<SetInfo> for MinLeaf {
-    fn sub_cmp(&self, rhs: &SetInfo) -> cmp::Ordering {
-        self.0.cmp(&rhs.min)
-    }
-}
-
-impl SubOrd<SetInfo> for MaxLeaf {
-    fn sub_cmp(&self, rhs: &SetInfo) -> cmp::Ordering {
-        self.0.cmp(&rhs.max)
     }
 }

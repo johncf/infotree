@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 /// The value stored in a leaf node should implement this trait.
 ///
 /// Note: If cloning a leaf is expensive, consider wrapping it in `Arc`.
@@ -25,18 +23,6 @@ pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
     ///
     /// `c0.extend(x).extend_inv(x) == c0`
     fn extend_inv(self, curr: RHS) -> Self;
-}
-
-/// Substructure ordering.
-///
-/// Useful for comparing a structure having multiple fields with another having a subset of those
-/// fields. This trait should only be implemented by the substructure types. There's a default
-/// implementation for the same type comparing itself.
-///
-/// The constrain for correctness is that the fields in substructure types should follow the same
-/// priority rules when determining the ordering.
-pub trait SubOrd<T> {
-    fn sub_cmp(&self, rhs: &T) -> Ordering;
 }
 
 // == End of Trait Definitions ==
@@ -65,11 +51,4 @@ impl PathInfo for usize {
 
     #[inline]
     fn extend_inv(self, other: usize) -> usize { self - other }
-}
-
-// Implement `SubOrd<T>` for all fully ordered `T`.
-impl<T: Ord> SubOrd<T> for T {
-    fn sub_cmp(&self, rhs: &T) -> Ordering {
-        self.cmp(rhs)
-    }
 }
