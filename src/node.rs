@@ -295,7 +295,70 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         where PI: PathInfo<L::Info> + Ord,
               F: FnOnce(PI, L) -> LeafAction<L>,
     {
-        unimplemented!();
+        fn __inner<L, NP, PI, F>(node: Node<L, NP>, path_start: PI, path_tick: PI, action: F) -> NodeAction<L, NP>
+            where L: Leaf,
+                  NP: NodesPtr<L>,
+                  PI: PathInfo<L::Info> + Ord,
+                  F: FnOnce(PI, L) -> LeafAction<L>,
+        {
+            match node {
+                Node::Internal(InternalVal { mut nodes, .. }) => {
+                    let mut before = path_start;
+                    let index = nodes.iter().position(|node| {
+                        let contains = node.contains_path_tick(before, path_tick);
+                        before = before.extend(node.info());
+                        contains
+                    }).unwrap();
+                    let node = NP::make_mut(&mut nodes).remove(index).unwrap();
+                    match __inner(node, before, path_tick, action) {
+                        NodeAction::Remove => {
+                            let parent = Node::from_children(nodes);
+                            if parent.has_min_size() {
+                                NodeAction::Replace(parent)
+                            } else {
+                                NodeAction::Merge(parent)
+                            }
+                        }
+                        NodeAction::Replace(node) => {
+                            let _res = NP::make_mut(&mut nodes).insert(index, node);
+                            debug_assert!(_res.is_none());
+                            let parent = Node::from_children(nodes);
+                            NodeAction::Replace(parent)
+                        },
+                        NodeAction::Merge(node) => unimplemented!(), // TODO
+                        NodeAction::Insert(node1, node2) => {
+                            let maybe_split = {
+                                let nodes = NP::make_mut(&mut nodes);
+                                let _res = nodes.insert(index, node2);
+                                debug_assert!(_res.is_none());
+                                insert_maybe_split(nodes, index, node1)
+                            };
+                            let parent = Node::from_children(nodes);
+                            match maybe_split {
+                                Some(right_nodes) => {
+                                    let right_parent = Node::from_children(right_nodes);
+                                    NodeAction::Insert(parent, right_parent)
+                                }
+                                None => NodeAction::Replace(parent),
+                            }
+                        },
+                        NodeAction::Split(node, maybe_node) => unimplemented!(), // TODO
+                    }
+                }
+                Node::Leaf(LeafVal { val, .. }) =>
+                    NodeAction::from(action(path_start, val))
+            }
+        }
+        if self.contains_path_tick(path_start, path_tick) {
+            match __inner(self, path_start, path_tick, action) {
+                NodeAction::Remove => ActionResult::Empty,
+                NodeAction::Replace(node) | NodeAction::Merge(node) => ActionResult::Updated(node),
+                NodeAction::Insert(node1, node2) => ActionResult::Updated(Node::merge_two(node1, node2)),
+                NodeAction::Split(node, maybe_node) => ActionResult::Split(node, maybe_node),
+            }
+        } else {
+            panic!("Nooooooo~~~~~")
+        }
     }
 }
 
@@ -323,8 +386,22 @@ pub enum ActionResult<L: Leaf, NP: NodesPtr<L>> {
 enum NodeAction<L: Leaf, NP: NodesPtr<L>> {
     Remove,
     Replace(Node<L, NP>),
+    Merge(Node<L, NP>), // if `Node` is too small
     Insert(Node<L, NP>, Node<L, NP>),
     Split(Node<L, NP>, Option<Node<L, NP>>),
+}
+
+impl<L: Leaf, NP: NodesPtr<L>> From<LeafAction<L>> for NodeAction<L, NP> {
+    fn from(action: LeafAction<L>) -> Self {
+        match action {
+            LeafAction::Remove => NodeAction::Remove,
+            LeafAction::Replace(leaf) => NodeAction::Replace(Node::from_leaf(leaf)),
+            LeafAction::Insert(leaf1, leaf2) =>
+                NodeAction::Insert(Node::from_leaf(leaf1), Node::from_leaf(leaf2)),
+            LeafAction::Split(leaf, maybe_leaf) =>
+                NodeAction::Split(Node::from_leaf(leaf), maybe_leaf.map(Node::from_leaf)),
+        }
+    }
 }
 
 /// This implementation is for testing and benchmarking purposes. This panics if the iterator is
@@ -542,6 +619,24 @@ mod tests {
             assert_eq!(leaf_ref.before, ListRun((val-1)*val/2));
             assert_eq!(leaf_ref.after, ListRun(val*(val+1)/2));
             assert!(leaf_ref.before.0 <= i && i < leaf_ref.after.0);
+        }
+    }
+
+    #[test]
+    fn insert() {
+        use super::{ActionResult, LeafAction};
+        let mut node = NodeRc::from_leaf(ListLeaf(0));
+        for i in 1..16 {
+            match node.action_path_tick(ListIndex(0), ListIndex(0),
+                                        |_, leaf| LeafAction::Insert(ListLeaf(i), leaf)) {
+                ActionResult::Updated(newnode) => node = newnode,
+                _ => unreachable!(),
+            };
+        }
+        for i in 0..16 {
+            println!("{}", i);
+            let leaf_ref = node.get_path_tick(ListIndex(0), ListIndex(i)).unwrap();
+            assert_eq!(leaf_ref.leaf, &ListLeaf(15-i));
         }
     }
 
