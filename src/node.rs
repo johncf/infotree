@@ -144,7 +144,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     /// Concatenates two nodes of possibly different heights into a single balanced node if the
     /// resulting height does not exceed the maximum height among the original nodes. Otherwise,
     /// splits them into two nodes of equal height.
-    pub fn maybe_concat(mut node1: Node<L, NP>, mut node2: Node<L, NP>) -> (Node<L, NP>, Option<Node<L, NP>>) {
+    pub fn maybe_concat(mut node1: Node<L, NP>, node2: Node<L, NP>) -> (Node<L, NP>, Option<Node<L, NP>>) {
         // This is an optimized version of the following code:
         // https://github.com/google/xi-editor/blob/cbec578/rust/rope/src/tree.rs#L276-L318
         // The originally adapted code (around 3x slower) is probably much easier to read and
@@ -188,11 +188,8 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 if node1.has_min_size() && node2.has_min_size() {
                     (node1, Some(node2))
                 } else {
-                    if node1.internal_mut_must().try_merge_with(node2.internal_mut_must()) {
-                        (node1, None)
-                    } else {
-                        (node1, Some(node2))
-                    }
+                    let maybe_node2 = node1.merge_maybe_split(node2);
+                    (node1, maybe_node2)
                 }
             },
             Ordering::Greater => {
@@ -328,7 +325,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                             debug_assert!(_res.is_none());
                             let parent = Node::from_children(nodes);
                             NodeAction::Replace(parent)
-                        },
+                        }
                         NodeAction::Merge(mut node) => {
                             debug_assert!(!node.is_leaf());
                             if nodes.len() > 0 {
@@ -363,7 +360,36 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                                 NodeAction::Replace(node)
                             }
                         }
-                        NodeAction::MergeLeaf(leaf) => unimplemented!(), // TODO
+                        NodeAction::MergeLeaf(leaf) => {
+                            if nodes.len() > 0 {
+                                let mut index = index;
+                                {
+                                    let nodes = NP::make_mut(&mut nodes);
+                                    let (mut left, right) =
+                                        if index < nodes.len() {
+                                            (leaf, nodes.remove(index).unwrap().into_leaf_must())
+                                        } else {
+                                            index -= 1;
+                                            (nodes.remove(index).unwrap().into_leaf_must(), leaf)
+                                        };
+                                    match left.merge_maybe_split(right) {
+                                        Some(right) => { nodes.insert(index, Node::from_leaf(right)); }
+                                        None => (),
+                                    }
+                                    let _res = nodes.insert(index, Node::from_leaf(left));
+                                    debug_assert!(_res.is_none());
+                                }
+                                let parent = Node::from_children(nodes);
+                                if parent.has_min_size() {
+                                    NodeAction::Replace(parent)
+                                } else {
+                                    NodeAction::Merge(parent)
+                                }
+                            } else {
+                                // this should only happen at root node.
+                                NodeAction::Replace(Node::from_leaf(leaf))
+                            }
+                        }
                         NodeAction::Insert(node1, node2) => {
                             let maybe_split = {
                                 let nodes = NP::make_mut(&mut nodes);
@@ -379,7 +405,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                                 }
                                 None => NodeAction::Replace(parent),
                             }
-                        },
+                        }
                         NodeAction::Split(node, maybe_node) => unimplemented!(), // TODO
                     }
                 }
@@ -586,18 +612,17 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
 }
 
 impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
-    // Update leaf value in place.
-    pub(crate) fn leaf_update<F>(&mut self, f: F) where F: FnOnce(&mut L) {
-        if let Node::Leaf(ref mut leaf) = *self {
-            f(&mut leaf.val);
-            leaf.info = leaf.val.compute_info();
-        }
-    }
-
     pub(crate) fn internal_mut_must(&mut self) -> &mut InternalVal<L, NP> {
         match *self {
             Node::Internal(ref mut int) => int,
             Node::Leaf(_) => unreachable!("buggy internal_mut_must call"),
+        }
+    }
+
+    pub(crate) fn into_leaf_must(self) -> L {
+        match self.into_leaf() {
+            Ok(leaf) => leaf,
+            Err(_) => unreachable!("buggy into_leaf_must call"),
         }
     }
 
@@ -611,7 +636,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     pub(crate) fn has_min_size(&self) -> bool {
         match *self {
             Node::Internal(ref int) => int.nodes.len() >= NP::max_size()/2,
-            Node::Leaf(_) => true,
+            Node::Leaf(LeafVal { ref val, .. }) => val.has_min_size(),
         }
     }
 
@@ -620,6 +645,30 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         nodes.push(node1);
         nodes.push(node2);
         Node::from_children(NP::new(nodes))
+    }
+
+    pub(crate) fn merge_maybe_split(&mut self, other: Self) -> Option<Self> {
+        use self::Node::{Leaf, Internal};
+        match *self {
+            Leaf(LeafVal { val: ref mut self_val, .. }) => {
+                if let Leaf(LeafVal { val: other_val, .. }) = other {
+                    self_val.merge_maybe_split(other_val).map(Node::from_leaf)
+                } else {
+                    unreachable!()
+                }
+            }
+            Internal(ref mut self_int) => {
+                if let Internal(mut other_int) = other {
+                    if self_int.try_merge_with(&mut other_int) {
+                        None
+                    } else {
+                        Some(Internal(other_int))
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+        }
     }
 }
 
@@ -719,6 +768,11 @@ mod tests {
             };
         }
         assert_eq!(node.height(), 2);
+    }
+
+    #[test]
+    fn merge_leaf() {
+        // TODO
     }
 
     // TODO more tests
