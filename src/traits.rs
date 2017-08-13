@@ -7,6 +7,19 @@ pub trait Leaf: Clone {
     type Info: Info;
 
     fn compute_info(&self) -> Self::Info;
+
+    /// If `self` and `right` can be merged into a single leaf, then merge it and return `None`,
+    /// otherwise redistribute the values so that both `self` and `right` has minimum required
+    /// size. Default behavior is to return `Some(right)`.
+    fn merge_maybe_split(&mut self, right: Self) -> Option<Self> {
+        Some(right)
+    }
+
+    /// Return whether the leaf has minimum required size. If false, the tree will try to merge it
+    /// with an adjacent leaf using `merge_maybe_split`. Default behavior is to always return true.
+    fn has_min_size(&self) -> bool {
+        true
+    }
 }
 
 /// Metadata that need to be gathered hierarchically over the tree.

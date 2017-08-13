@@ -66,16 +66,13 @@ pub struct LeafVal<L: Leaf> {
 impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     #[inline]
     pub fn from_leaf(leaf: L) -> Node<L, NP> {
-        Node::Leaf(LeafVal {
-                       info: leaf.compute_info(),
-                       val: leaf,
-                   })
+        Node::Leaf(LeafVal::from_value(leaf))
     }
 
     /// All nodes should be at the same height, panics otherwise.
     #[inline]
     pub fn from_children(nodes: NP) -> Node<L, NP> {
-        Node::Internal(InternalVal::from_children(nodes))
+        Node::Internal(InternalVal::from_nodes(nodes))
     }
 
     /// Tries to unwrap the node into leaf. If node is internal, `Err(self)` is returned.
@@ -366,6 +363,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                                 NodeAction::Replace(node)
                             }
                         }
+                        NodeAction::MergeLeaf(leaf) => unimplemented!(), // TODO
                         NodeAction::Insert(node1, node2) => {
                             let maybe_split = {
                                 let nodes = NP::make_mut(&mut nodes);
@@ -393,6 +391,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             match __inner(self, PI::default(), path_tick, action) {
                 NodeAction::Remove => ActionResult::Empty,
                 NodeAction::Replace(node) | NodeAction::Merge(node) => ActionResult::Updated(node),
+                NodeAction::MergeLeaf(leaf) => ActionResult::Updated(Node::from_leaf(leaf)),
                 NodeAction::Insert(node1, node2) => ActionResult::Updated(Node::merge_two(node1, node2)),
                 NodeAction::Split(node, maybe_node) => ActionResult::Split(node, maybe_node),
             }
@@ -411,9 +410,14 @@ pub struct LeafRef<'a, L: Leaf + 'a, PI: PathInfo<L::Info>> {
 }
 
 pub enum LeafAction<L: Leaf> {
+    /// Remove the current leaf.
     Remove,
+    /// Replace the current leaf.
     Replace(L),
+    /// Replace the current leaf with two. Both `L`'s must satisfy `has_min_size`.
     Insert(L, L),
+    /// Split the tree starting from the current leaf. The left `L` will go to the left tree and
+    /// the right `L` to the right.
     Split(L, Option<L>),
 }
 
@@ -427,6 +431,7 @@ enum NodeAction<L: Leaf, NP: NodesPtr<L>> {
     Remove,
     Replace(Node<L, NP>),
     Merge(Node<L, NP>), // if `Node` is too small
+    MergeLeaf(L), // if `L` is too small
     Insert(Node<L, NP>, Node<L, NP>),
     Split(Node<L, NP>, Option<Node<L, NP>>),
 }
@@ -435,9 +440,17 @@ impl<L: Leaf, NP: NodesPtr<L>> From<LeafAction<L>> for NodeAction<L, NP> {
     fn from(action: LeafAction<L>) -> Self {
         match action {
             LeafAction::Remove => NodeAction::Remove,
-            LeafAction::Replace(leaf) => NodeAction::Replace(Node::from_leaf(leaf)),
-            LeafAction::Insert(leaf1, leaf2) =>
-                NodeAction::Insert(Node::from_leaf(leaf1), Node::from_leaf(leaf2)),
+            LeafAction::Replace(leaf) =>
+                if leaf.has_min_size() {
+                    NodeAction::Replace(Node::from_leaf(leaf))
+                } else {
+                    NodeAction::MergeLeaf(leaf)
+                },
+            LeafAction::Insert(leaf1, leaf2) => {
+                assert!(leaf1.has_min_size() && leaf2.has_min_size(),
+                        "At least one of the inserted leaf does not has_min_size!!");
+                NodeAction::Insert(Node::from_leaf(leaf1), Node::from_leaf(leaf2))
+            }
             LeafAction::Split(leaf, maybe_leaf) =>
                 NodeAction::Split(Node::from_leaf(leaf), maybe_leaf.map(Node::from_leaf)),
         }
@@ -527,6 +540,15 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     }
 }
 
+impl<L: Leaf> LeafVal<L> {
+    pub(crate) fn from_value(leaf: L) -> Self {
+        LeafVal {
+            info: leaf.compute_info(),
+            val: leaf,
+        }
+    }
+}
+
 impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
     fn summarize(nodes: &NP) -> (L::Info, usize) {
         let height = nodes[0].height() + 1;
@@ -538,7 +560,7 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
         (info, height)
     }
 
-    pub(crate) fn from_children(nodes: NP) -> Self {
+    pub(crate) fn from_nodes(nodes: NP) -> Self {
         let (info, height) = Self::summarize(&nodes);
         InternalVal { info, height, nodes }
     }
