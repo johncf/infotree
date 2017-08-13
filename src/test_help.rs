@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
 use node::{Node, Rc16};
-use traits::{Info, Leaf, PathInfo};
+use traits::{Info, Leaf, PathInfo, SubOrd};
 
-use std::cmp;
+use std::cmp::{self, Ordering};
 
 pub fn rand_usize(max: usize) -> usize {
     ::rand::random::<usize>() % max
@@ -21,9 +21,14 @@ pub struct ListInfo {
     pub sum: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ListPath {
+    pub index: usize,
+    pub run: usize,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ListIndex(pub usize);
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ListRun(pub usize);
 
 impl Leaf for ListLeaf {
@@ -45,6 +50,22 @@ impl Info for ListInfo {
     }
 }
 
+impl PathInfo<ListInfo> for ListPath {
+    fn extend(self, prev: ListInfo) -> Self {
+        ListPath {
+            index: self.index + prev.count,
+            run: self.run + prev.sum,
+        }
+    }
+
+    fn extend_inv(self, curr: ListInfo) -> Self {
+        ListPath {
+            index: self.index - curr.count,
+            run: self.run - curr.sum,
+        }
+    }
+}
+
 impl PathInfo<ListInfo> for ListIndex {
     fn extend(self, prev: ListInfo) -> Self {
         ListIndex(self.0 + prev.count)
@@ -62,6 +83,18 @@ impl PathInfo<ListInfo> for ListRun {
 
     fn extend_inv(self, curr: ListInfo) -> Self {
         ListRun(self.0 - curr.sum)
+    }
+}
+
+impl SubOrd<ListPath> for ListIndex {
+    fn sub_cmp(&self, rhs: &ListPath) -> Ordering {
+        self.0.cmp(&rhs.index)
+    }
+}
+
+impl SubOrd<ListPath> for ListRun {
+    fn sub_cmp(&self, rhs: &ListPath) -> Ordering {
+        self.0.cmp(&rhs.run)
     }
 }
 
@@ -95,5 +128,29 @@ impl Info for SetInfo {
             min: cmp::min(self.min, other.min),
             max: cmp::max(self.max, other.max),
         }
+    }
+}
+
+impl SubOrd<SetInfo> for MinChar {
+    fn sub_cmp(&self, rhs: &SetInfo) -> Ordering {
+        self.0.cmp(&rhs.min.0)
+    }
+}
+
+impl SubOrd<SetInfo> for MaxChar {
+    fn sub_cmp(&self, rhs: &SetInfo) -> Ordering {
+        self.0.cmp(&rhs.max.0)
+    }
+}
+
+impl SubOrd<SetInfo> for MinLeaf {
+    fn sub_cmp(&self, rhs: &SetInfo) -> Ordering {
+        self.0.cmp(&rhs.min)
+    }
+}
+
+impl SubOrd<SetInfo> for MaxLeaf {
+    fn sub_cmp(&self, rhs: &SetInfo) -> Ordering {
+        self.0.cmp(&rhs.max)
     }
 }

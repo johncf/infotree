@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 /// The value stored in a leaf node should implement this trait.
 ///
 /// Note: If cloning a leaf is expensive, consider wrapping it in `Arc`.
@@ -23,6 +25,42 @@ pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
     ///
     /// `c0.extend(x).extend_inv(x) == c0`
     fn extend_inv(self, curr: RHS) -> Self;
+}
+
+/// Substructure ordering.
+///
+/// Useful for comparing a structure having multiple fields with another having a subset of those
+/// fields. This trait should only be implemented by the substructure types. A default
+/// implementation is provided for the types implementing `Ord` for comparing itself.
+///
+/// The constrain for correctness is that the fields in substructure types should follow the same
+/// priority rules when determining the ordering.
+pub trait SubOrd<T> {
+    fn sub_cmp(&self, rhs: &T) -> Ordering;
+}
+
+impl<T> SubOrd<T> for T where T: Ord {
+    fn sub_cmp(&self, rhs: &Self) -> Ordering {
+        self.cmp(rhs)
+    }
+}
+
+/// Superstructure ordering. (The mirror of `SubOrd`.)
+///
+/// This trait must not be directly implemented. A default implementation based on `SubOrd` is
+/// provided and must not be overridden.
+pub trait SupOrd<T> {
+    fn sup_cmp(&self, rhs: &T) -> Ordering;
+}
+
+impl<T, U> SupOrd<U> for T where U: SubOrd<T> {
+    fn sup_cmp(&self, rhs: &U) -> Ordering {
+        match rhs.sub_cmp(self) {
+            Ordering::Less => Ordering::Greater,
+            Ordering::Equal => Ordering::Equal,
+            Ordering::Greater => Ordering::Less,
+        }
+    }
 }
 
 // == End of Trait Definitions ==

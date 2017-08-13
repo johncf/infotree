@@ -1,4 +1,4 @@
-use traits::{Info, Leaf, PathInfo};
+use traits::{Info, Leaf, PathInfo, SubOrd, SupOrd};
 
 use arrayvec::ArrayVec;
 
@@ -233,14 +233,15 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     }
 
     /// Returns whether `path_before <= path_tick < path_before.extend(self.info)`.
-    pub fn contains_path_tick<PI>(&self, path_before: PI, path_tick: PI) -> bool
-        where PI: PathInfo<L::Info> + Ord,
+    pub fn contains_path_tick<PI, PS>(&self, path_before: PI, path_tick: PS) -> bool
+        where PI: PathInfo<L::Info>,
+              PS: SubOrd<PI>,
     {
-        match path_before.cmp(&path_tick) {
+        match path_before.sup_cmp(&path_tick) {
             Ordering::Less | Ordering::Equal => {
                 let info = self.info();
                 let path_after = path_before.extend(info);
-                match path_tick.cmp(&path_after) {
+                match path_tick.sub_cmp(&path_after) {
                     Ordering::Less => true,
                     _ => false,
                 }
@@ -250,13 +251,17 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     }
 
     /// Fetch the leaf satisfying `contains_path_tick` condition.
-    pub fn get_path_tick<PI>(&self, path_start: PI, path_tick: PI) -> Option<LeafRef<L, PI>>
-        where PI: PathInfo<L::Info> + Ord,
+    ///
+    /// `PI::default()` is used as the path info at the beginning of the tree.
+    pub fn get_path_tick<PI, PS>(&self, path_tick: PS) -> Option<LeafRef<L, PI>>
+        where PI: PathInfo<L::Info> + Default,
+              PS: SubOrd<PI> + Copy,
     {
-        fn __inner<L, NP, PI>(node: &Node<L, NP>, path_start: PI, path_tick: PI) -> LeafRef<L, PI>
+        fn __inner<L, NP, PI, PS>(node: &Node<L, NP>, path_start: PI, path_tick: PS) -> LeafRef<L, PI>
             where L: Leaf,
                   NP: NodesPtr<L>,
-                  PI: PathInfo<L::Info> + Ord,
+                  PI: PathInfo<L::Info>,
+                  PS: SubOrd<PI> + Copy,
         {
             match *node {
                 Node::Internal(InternalVal { ref nodes, .. }) => {
@@ -279,8 +284,8 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     },
             }
         }
-        if self.contains_path_tick(path_start, path_tick) {
-            Some(__inner(self, path_start, path_tick))
+        if self.contains_path_tick(PI::default(), path_tick) {
+            Some(__inner(self, PI::default(), path_tick))
         } else {
             None
         }
@@ -291,14 +296,16 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     /// return the action to be taken at that leaf as a `LeafAction` object.
     ///
     /// Panics if `path_tick` was out of bounds w.r.t `path_start`.
-    pub fn action_path_tick<PI, F>(self, path_start: PI, path_tick: PI, action: F) -> ActionResult<L, NP>
-        where PI: PathInfo<L::Info> + Ord + ::std::fmt::Debug,
+    pub fn action_path_tick<PI, PS, F>(self, path_tick: PS, action: F) -> ActionResult<L, NP>
+        where PI: PathInfo<L::Info> + Default,
+              PS: SubOrd<PI> + Copy,
               F: FnOnce(PI, L) -> LeafAction<L>,
     {
-        fn __inner<L, NP, PI, F>(node: Node<L, NP>, path_start: PI, path_tick: PI, action: F) -> NodeAction<L, NP>
+        fn __inner<L, NP, PI, PS, F>(node: Node<L, NP>, path_start: PI, path_tick: PS, action: F) -> NodeAction<L, NP>
             where L: Leaf,
                   NP: NodesPtr<L>,
-                  PI: PathInfo<L::Info> + Ord + ::std::fmt::Debug,
+                  PI: PathInfo<L::Info>,
+                  PS: SubOrd<PI> + Copy,
                   F: FnOnce(PI, L) -> LeafAction<L>,
         {
             match node {
@@ -382,8 +389,8 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     NodeAction::from(action(path_start, val))
             }
         }
-        if self.contains_path_tick(path_start, path_tick) {
-            match __inner(self, path_start, path_tick, action) {
+        if self.contains_path_tick(PI::default(), path_tick) {
+            match __inner(self, PI::default(), path_tick, action) {
                 NodeAction::Remove => ActionResult::Empty,
                 NodeAction::Replace(node) | NodeAction::Merge(node) => ActionResult::Updated(node),
                 NodeAction::Insert(node1, node2) => ActionResult::Updated(Node::merge_two(node1, node2)),
@@ -636,15 +643,15 @@ mod tests {
         }
         for i in 0..16 {
             println!("{}", i);
-            let leaf_ref = node.get_path_tick(ListIndex(0), ListIndex(i)).unwrap();
+            let leaf_ref = node.get_path_tick::<ListPath, _>(ListIndex(i)).unwrap();
             assert_eq!(leaf_ref.leaf, &ListLeaf(i));
             assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
-            assert_eq!(leaf_ref.before, ListIndex(i));
-            assert_eq!(leaf_ref.after, ListIndex(i + 1));
+            assert_eq!(leaf_ref.before, ListPath { index: i, run: i.wrapping_sub(1)*i/2 });
+            assert_eq!(leaf_ref.after, ListPath { index: i + 1, run: i*(i+1)/2 });
         }
         for i in 0..(15*16/2) {
             println!("{}", i);
-            let leaf_ref = node.get_path_tick(ListRun(0), ListRun(i)).unwrap();
+            let leaf_ref = node.get_path_tick::<ListRun, _>(ListRun(i)).unwrap();
             let val = leaf_ref.leaf.0;
             assert!(val > 0);
             assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: val });
@@ -659,8 +666,10 @@ mod tests {
         use super::{ActionResult, LeafAction};
         let mut node = NodeRc::from_leaf(ListLeaf(0));
         for i in 1..137 {
-            match node.action_path_tick(ListIndex(0), ListIndex(0),
-                                        |_, leaf| LeafAction::Insert(ListLeaf(i), leaf)) {
+            match node.action_path_tick::<ListIndex, _, _>(
+                      ListIndex(0),
+                      |_, leaf| LeafAction::Insert(ListLeaf(i), leaf))
+            {
                 ActionResult::Updated(newnode) => node = newnode,
                 _ => unreachable!(),
             };
@@ -668,7 +677,7 @@ mod tests {
         assert_eq!(node.height(), 3);
         for i in 0..137 {
             println!("{}", i);
-            let leaf_ref = node.get_path_tick(ListIndex(0), ListIndex(i)).unwrap();
+            let leaf_ref = node.get_path_tick::<ListIndex, _>(ListIndex(i)).unwrap();
             assert_eq!(leaf_ref.leaf, &ListLeaf(136-i));
         }
     }
@@ -682,7 +691,7 @@ mod tests {
         }
         assert_eq!(node.height(), 3);
         for _ in 0..128+65 {
-            match node.action_path_tick(ListIndex(0), ListIndex(0), |_, _| LeafAction::Remove) {
+            match node.action_path_tick::<ListIndex, _, _>(ListIndex(0), |_, _| LeafAction::Remove) {
                 ActionResult::Updated(newnode) => node = newnode,
                 _ => unreachable!(),
             };
