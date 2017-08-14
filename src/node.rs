@@ -650,9 +650,15 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     pub(crate) fn merge_maybe_split(&mut self, other: Self) -> Option<Self> {
         use self::Node::{Leaf, Internal};
         match *self {
-            Leaf(LeafVal { val: ref mut self_val, .. }) => {
-                if let Leaf(LeafVal { val: other_val, .. }) = other {
-                    self_val.merge_maybe_split(other_val).map(Node::from_leaf)
+            Leaf(LeafVal { val: ref mut self_val, info: ref mut self_info }) => {
+                if let Leaf(LeafVal { val: other_val, info: other_info }) = other {
+                    let maybe_split = self_val.merge_maybe_split(other_val).map(Node::from_leaf);
+                    if maybe_split.is_some() {
+                        *self_info = self_val.compute_info();
+                    } else {
+                        *self_info = self_info.gather(other_info);
+                    }
+                    maybe_split
                 } else {
                     unreachable!()
                 }

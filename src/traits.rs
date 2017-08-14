@@ -11,6 +11,11 @@ pub trait Leaf: Clone {
     /// If `self` and `right` can be merged into a single leaf, then merge it and return `None`,
     /// otherwise redistribute the values so that both `self` and `right` has minimum required
     /// size. Default behavior is to return `Some(right)`.
+    ///
+    /// This method, if chooses to merge them into one, must satisfy the following condition:
+    /// ```text
+    /// new_self.info = old_self.info.gather(right.info)
+    /// ```
     fn merge_maybe_split(&mut self, right: Self) -> Option<Self> {
         Some(right)
     }
@@ -24,9 +29,9 @@ pub trait Leaf: Clone {
 
 /// Metadata that need to be gathered hierarchically over the tree.
 pub trait Info: Copy {
-    /// Used when gathering info from children to parent nodes. Should probably be commutative and
-    /// associative.
-    fn gather(self, other: Self) -> Self;
+    /// Used when gathering info from children to parent nodes. This operation must be associative,
+    /// but not necessarily commutative.
+    fn gather(self, rhs: Self) -> Self;
 }
 
 pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
