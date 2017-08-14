@@ -488,19 +488,112 @@ impl<L: Leaf, NP: NodesPtr<L>> From<LeafAction<L>> for NodeAction<L, NP> {
 /// **Panics** if the iterator is empty.
 impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
     fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
-        let mut iter = iter.into_iter().map(Node::from_leaf);
-        let mut root = iter.next().expect("Iterator should not be empty.");
+        enum IterStatus<L: Leaf, NP: NodesPtr<L>> {
+            More(Node<L, NP>),
+            Done(Node<L, NP>),
+            Empty,
+        }
 
-        loop {
-            let nodes: ArrayVec<_> = iter.by_ref().take(NP::max_size()).collect();
-            if nodes.len() > 0 {
+        fn __base<L, NP, I>(iter: &mut I) -> IterStatus<L, NP>
+            where L: Leaf, NP: NodesPtr<L>, I: Iterator<Item=L>,
+        {
+            if let Some(mut leaf_prev) = iter.next() {
+                let mut nodes = ArrayVec::new();
+                let done = loop {
+                    if let Some(leaf) = iter.next() {
+                        if leaf.has_min_size() && (nodes.len() > 0 || leaf_prev.has_min_size()) {
+                            nodes.push(Node::from_leaf(leaf_prev));
+                            leaf_prev = leaf;
+                        } else if let Some(leaf_split) = leaf_prev.merge_maybe_split(leaf) {
+                            nodes.push(Node::from_leaf(leaf_prev));
+                            leaf_prev = leaf_split;
+                        }
+
+                        if nodes.len() == NP::max_size() - 1 {
+                            break false;
+                        }
+                    } else {
+                        break true;
+                    }
+                };
+                nodes.push(Node::from_leaf(leaf_prev));
                 let node = Node::from_children(NP::new(nodes));
-                root = Node::concat(root, node);
+                if done {
+                    IterStatus::Done(node)
+                } else {
+                    IterStatus::More(node)
+                }
             } else {
-                break;
+                IterStatus::Empty
             }
         }
-        root
+
+        fn __take<L, NP, I>(height: usize, iter: &mut I) -> IterStatus<L, NP>
+            where L: Leaf, NP: NodesPtr<L>, I: Iterator<Item=L>,
+        {
+            debug_assert!(height > 0);
+            if height == 1 {
+                __base(iter)
+            } else {
+                match __take(height - 1, iter) {
+                    IterStatus::More(node) => __grow(node, iter),
+                    status => status,
+                }
+            }
+        }
+
+        fn __grow<L, NP, I>(node: Node<L, NP>, iter: &mut I) -> IterStatus<L, NP>
+            where L: Leaf, NP: NodesPtr<L>, I: Iterator<Item=L>,
+        {
+            debug_assert!(node.has_min_size());
+            let height = node.height();
+            debug_assert!(height > 0);
+            let mut nodes: ArrayVec<NP::Array> = ArrayVec::new();
+            nodes.push(node);
+            let done = loop {
+                match __take(height, iter) {
+                    IterStatus::More(node) => {
+                        debug_assert_eq!(node.height(), height);
+                        nodes.push(node);
+                        if nodes.len() == NP::max_size() {
+                            break false;
+                        }
+                    }
+                    IterStatus::Done(node) => {
+                        let last_node = nodes.pop().unwrap();
+                        match Node::maybe_concat(last_node, node) {
+                            (node1, Some(node2)) => {
+                                nodes.push(node1);
+                                nodes.push(node2);
+                            }
+                            (node1, None) => {
+                                nodes.push(node1);
+                            }
+                        }
+                        break true;
+                    }
+                    IterStatus::Empty => {
+                        break true;
+                    }
+                }
+            };
+            let node = Node::from_children(NP::new(nodes));
+            if done {
+                IterStatus::Done(node)
+            } else {
+                IterStatus::More(node)
+            }
+        }
+
+        let mut iter = iter.into_iter();
+        let mut status = __base(&mut iter);
+        loop {
+            match status {
+                IterStatus::More(node) => status = __grow(node, &mut iter),
+                IterStatus::Done(node) => break node,
+                IterStatus::Empty => panic!("Empty iterator!"),
+            }
+        }
     }
 }
 
@@ -685,6 +778,13 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 #[cfg(test)]
 mod tests {
     use ::test_help::*;
+
+    #[test]
+    fn iter() {
+        let total = 768;
+        let node: NodeRc<_> = (0..total).map(|i| ListLeaf(i + 1)).collect();
+        assert_eq!(node.info(), ListInfo { count: total, sum: total*(total + 1)/2 });
+    }
 
     #[test]
     fn info_height() {
