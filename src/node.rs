@@ -135,7 +135,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     pub fn concat(node1: Node<L, NP>, node2: Node<L, NP>) -> Node<L, NP> {
         let (node1, maybe_node2) = Node::maybe_concat(node1, node2);
         if let Some(node2) = maybe_node2 {
-            Node::merge_two(node1, node2)
+            Node::join_two(node1, node2)
         } else {
             node1
         }
@@ -160,24 +160,24 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     let children2 = NP::make_mut(&mut children2);
                     if h1 == h2 - 1 && node1.has_min_size() {
                         insert_maybe_split(children2, 0, node1)
-                            .map(|split_children| Node::from_children(split_children))
+                            .map(Node::from_children)
                     } else {
-                        let newnode2 = Node::concat(node1, children2.remove(0).unwrap());
-                        if newnode2.height() == h2 - 1 {
-                            insert_maybe_split(children2, 0, newnode2)
-                                .map(|split_children| Node::from_children(split_children))
+                        let newnode1 = Node::concat(node1, children2.remove(0).unwrap());
+                        if newnode1.height() == h2 - 1 {
+                            insert_maybe_split(children2, 0, newnode1)
+                                .map(Node::from_children)
                         } else {
-                            debug_assert_eq!(newnode2.height(), h2);
-                            let mut newchildren = newnode2.into_children_must();
+                            debug_assert_eq!(newnode1.height(), h2);
+                            let mut newchildren1 = newnode1.into_children_must();
                             let merged = {
-                                let newchildren = NP::make_mut(&mut newchildren);
-                                mem::swap(newchildren, children2);
-                                balance_maybe_merge::<_, NP>(children2, newchildren)
+                                let newchildren1 = NP::make_mut(&mut newchildren1);
+                                mem::swap(newchildren1, children2);
+                                balance_maybe_merge::<_, NP>(children2, newchildren1)
                             };
                             if merged {
                                 None
                             } else {
-                                Some(Node::from_children(newchildren))
+                                Some(Node::from_children(newchildren1))
                             }
                         }
                     }
@@ -199,24 +199,24 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     let children1 = NP::make_mut(&mut children1);
                     if h2 == h1 - 1 && node2.has_min_size() {
                         insert_maybe_split(children1, len1, node2)
-                            .map(|split_children| Node::from_children(split_children))
+                            .map(Node::from_children)
                     } else {
-                        let newnode1 = Node::concat(children1.pop().unwrap(), node2);
+                        let newnode2 = Node::concat(children1.pop().unwrap(), node2);
                         let len1 = len1 - 1;
-                        if newnode1.height() == h1 - 1 {
-                            insert_maybe_split(children1, len1, newnode1)
-                                .map(|split_children| Node::from_children(split_children))
+                        if newnode2.height() == h1 - 1 {
+                            insert_maybe_split(children1, len1, newnode2)
+                                .map(Node::from_children)
                         } else {
-                            debug_assert_eq!(newnode1.height(), h1);
-                            let mut newchildren = newnode1.into_children_must();
+                            debug_assert_eq!(newnode2.height(), h1);
+                            let mut newchildren2 = newnode2.into_children_must();
                             let merged = {
-                                let newchildren = NP::make_mut(&mut newchildren);
-                                balance_maybe_merge::<_, NP>(children1, newchildren)
+                                let newchildren2 = NP::make_mut(&mut newchildren2);
+                                balance_maybe_merge::<_, NP>(children1, newchildren2)
                             };
                             if merged {
                                 None
                             } else {
-                                Some(Node::from_children(newchildren))
+                                Some(Node::from_children(newchildren2))
                             }
                         }
                     }
@@ -406,7 +406,9 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                                 None => NodeAction::Replace(parent),
                             }
                         }
-                        NodeAction::Split(node, maybe_node) => unimplemented!(), // TODO
+                        NodeAction::Split(node, maybe_node) => {
+                            unimplemented!() // TODO
+                        }
                     }
                 }
                 Node::Leaf(LeafVal { val, .. }) =>
@@ -418,7 +420,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 NodeAction::Remove => ActionResult::Empty,
                 NodeAction::Replace(node) | NodeAction::Merge(node) => ActionResult::Updated(node),
                 NodeAction::MergeLeaf(leaf) => ActionResult::Updated(Node::from_leaf(leaf)),
-                NodeAction::Insert(node1, node2) => ActionResult::Updated(Node::merge_two(node1, node2)),
+                NodeAction::Insert(node1, node2) => ActionResult::Updated(Node::join_two(node1, node2)),
                 NodeAction::Split(node, maybe_node) => ActionResult::Split(node, maybe_node),
             }
         } else {
@@ -483,8 +485,7 @@ impl<L: Leaf, NP: NodesPtr<L>> From<LeafAction<L>> for NodeAction<L, NP> {
     }
 }
 
-/// This implementation is for testing and benchmarking purposes. This panics if the iterator is
-/// empty. Use `CursorMut::collect` which not only avoids panicking, but is also more efficient.
+/// **Panics** if the iterator is empty.
 impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
     fn from_iter<I: IntoIterator<Item=L>>(iter: I) -> Self {
         let mut iter = iter.into_iter().map(Node::from_leaf);
@@ -587,6 +588,7 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
     }
 
     pub(crate) fn from_nodes(nodes: NP) -> Self {
+        assert_ne!(nodes.len(), 0);
         let (info, height) = Self::summarize(&nodes);
         InternalVal { info, height, nodes }
     }
@@ -640,7 +642,9 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         }
     }
 
-    pub(crate) fn merge_two(node1: Node<L, NP>, node2: Node<L, NP>) -> Node<L, NP> {
+    pub(crate) fn join_two(node1: Node<L, NP>, node2: Node<L, NP>) -> Node<L, NP> {
+        debug_assert_eq!(node1.height(), node2.height());
+        debug_assert!(node1.has_min_size() && node2.has_min_size());
         let mut nodes = ArrayVec::new();
         nodes.push(node1);
         nodes.push(node2);
