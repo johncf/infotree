@@ -501,10 +501,7 @@ impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
                 let mut nodes = ArrayVec::new();
                 let done = loop {
                     if let Some(leaf) = iter.next() {
-                        if leaf.has_min_size() && (nodes.len() > 0 || leaf_prev.has_min_size()) {
-                            nodes.push(Node::from_leaf(leaf_prev));
-                            leaf_prev = leaf;
-                        } else if let Some(leaf_split) = leaf_prev.merge_maybe_split(leaf) {
+                        if let Some(leaf_split) = leaf_prev.merge_maybe_split(leaf) {
                             nodes.push(Node::from_leaf(leaf_prev));
                             leaf_prev = leaf_split;
                         }
@@ -516,7 +513,8 @@ impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
                         break true;
                     }
                 };
-                nodes.push(Node::from_leaf(leaf_prev));
+                let _res = nodes.push(Node::from_leaf(leaf_prev));
+                debug_assert!(_res.is_none());
                 let node = Node::from_children(NP::new(nodes));
                 if done {
                     IterStatus::Done(node)
@@ -551,9 +549,11 @@ impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
             let mut nodes: ArrayVec<NP::Array> = ArrayVec::new();
             nodes.push(node);
             let done = loop {
+                debug_assert!(nodes.len() < NP::max_size());
                 match __take(height, iter) {
                     IterStatus::More(node) => {
                         debug_assert_eq!(node.height(), height);
+                        debug_assert!(node.has_min_size());
                         nodes.push(node);
                         if nodes.len() == NP::max_size() {
                             break false;

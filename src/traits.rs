@@ -12,16 +12,20 @@ pub trait Leaf: Clone {
     /// otherwise redistribute the values so that both `self` and `right` has minimum required
     /// size. Default behavior is to return `Some(right)`.
     ///
-    /// This method, if chooses to merge them into one, must satisfy the following condition:
+    /// If this method chooses to merge them into one, must satisfy the following condition:
     /// ```text
     /// new_self.info = old_self.info.gather(right.info)
     /// ```
+    /// On the other hand, if it chooses to split, then both the modified `self` and the returned
+    /// `Leaf` must have `has_min_size` to be true.
     fn merge_maybe_split(&mut self, right: Self) -> Option<Self> {
         Some(right)
     }
 
     /// Return whether the leaf has minimum required size. If false, the tree will try to merge it
     /// with an adjacent leaf using `merge_maybe_split`. Default behavior is to always return true.
+    ///
+    /// This should preferrably be a fast constant-time check.
     fn has_min_size(&self) -> bool {
         true
     }
