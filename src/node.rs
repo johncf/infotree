@@ -1,4 +1,4 @@
-use traits::{Info, Leaf, PathInfo, SubOrd, SupOrd};
+use traits::{SumInfo, Leaf, PathInfo, SubOrd, SupOrd};
 
 use arrayvec::ArrayVec;
 

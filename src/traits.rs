@@ -1,10 +1,18 @@
 use std::cmp::Ordering;
 
+/// Metadata that would be gathered hierarchically over the tree.
+pub trait SumInfo: Copy {
+    /// Used when summarizing info from children by parent nodes.
+    ///
+    /// This operation must be associative, but not necessarily commutative.
+    fn gather(self, rhs: Self) -> Self;
+}
+
 /// The value stored in a leaf node should implement this trait.
 ///
 /// Note: If cloning a leaf is expensive, consider wrapping it in `Arc`.
 pub trait Leaf: Clone {
-    type Info: Info;
+    type Info: SumInfo;
 
     fn compute_info(&self) -> Self::Info;
 
@@ -31,22 +39,15 @@ pub trait Leaf: Clone {
     }
 }
 
-/// Metadata that need to be gathered hierarchically over the tree.
-pub trait Info: Copy {
-    /// Used when gathering info from children to parent nodes. This operation must be associative,
-    /// but not necessarily commutative.
-    fn gather(self, rhs: Self) -> Self;
-}
-
-pub trait PathInfo<RHS=Self>: Copy where RHS: Info {
+pub trait PathInfo<Info>: Copy where Info: SumInfo {
     /// Used when traversing down the tree for computing the cumulative info from root.
-    fn extend(self, prev: RHS) -> Self;
+    fn extend(self, prev: Info) -> Self;
 
     /// The inverse of `extend` operation. If the info gathered on a node is `x`, and `c0` is the
     /// cumulative path info to that node, then the following condition should hold:
     ///
     /// `c0.extend(x).extend_inv(x) == c0`
-    fn extend_inv(self, curr: RHS) -> Self;
+    fn extend_inv(self, curr: Info) -> Self;
 }
 
 /// Substructure ordering.
@@ -87,17 +88,17 @@ impl<T, U> SupOrd<U> for T where U: SubOrd<T> {
 
 // == End of Trait Definitions ==
 
-impl Info for () {
+impl SumInfo for () {
     #[inline]
     fn gather(self, _: ()) { }
 }
 
-impl Info for usize {
+impl SumInfo for usize {
     #[inline]
     fn gather(self, other: usize) -> usize { self + other }
 }
 
-impl<T> PathInfo<T> for () where T: Info {
+impl<T: SumInfo> PathInfo<T> for () {
     #[inline]
     fn extend(self, _: T) { }
 
@@ -105,7 +106,7 @@ impl<T> PathInfo<T> for () where T: Info {
     fn extend_inv(self, _: T) { }
 }
 
-impl PathInfo for usize {
+impl PathInfo<usize> for usize {
     #[inline]
     fn extend(self, other: usize) -> usize { self + other }
 

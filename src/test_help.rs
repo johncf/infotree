@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use node::{Node, Rc16};
-use traits::{Info, Leaf, PathInfo, SubOrd};
+use traits::{SumInfo, Leaf, PathInfo, SubOrd};
 
 use std::cmp::{self, Ordering};
 
@@ -41,7 +41,7 @@ impl Leaf for ListLeaf {
     }
 }
 
-impl Info for ListInfo {
+impl SumInfo for ListInfo {
     fn gather(self, other: Self) -> Self {
         ListInfo {
             count: self.count + other.count,
@@ -122,7 +122,7 @@ impl Leaf for SetLeaf {
     }
 }
 
-impl Info for SetInfo {
+impl SumInfo for SetInfo {
     fn gather(self, other: Self) -> Self {
         SetInfo {
             min: cmp::min(self.min, other.min),
