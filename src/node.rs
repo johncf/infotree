@@ -162,23 +162,13 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         insert_maybe_split(children2, 0, node1)
                             .map(Node::from_children)
                     } else {
-                        let newnode1 = Node::concat(node1, children2.remove(0).unwrap());
-                        if newnode1.height() == h2 - 1 {
-                            insert_maybe_split(children2, 0, newnode1)
+                        let (node1_1, maybe_node1_2) = Node::maybe_concat(node1, children2.remove(0).unwrap());
+                        children2.insert(0, node1_1);
+                        if let Some(node1_2) = maybe_node1_2 {
+                            insert_maybe_split(children2, 1, node1_2)
                                 .map(Node::from_children)
                         } else {
-                            debug_assert_eq!(newnode1.height(), h2);
-                            let mut newchildren1 = newnode1.into_children_must();
-                            let merged = {
-                                let newchildren1 = NP::make_mut(&mut newchildren1);
-                                mem::swap(newchildren1, children2);
-                                balance_maybe_merge::<_, NP>(children2, newchildren1)
-                            };
-                            if merged {
-                                None
-                            } else {
-                                Some(Node::from_children(newchildren1))
-                            }
+                            None
                         }
                     }
                 };
@@ -201,23 +191,13 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         insert_maybe_split(children1, len1, node2)
                             .map(Node::from_children)
                     } else {
-                        let newnode2 = Node::concat(children1.pop().unwrap(), node2);
-                        let len1 = len1 - 1;
-                        if newnode2.height() == h1 - 1 {
-                            insert_maybe_split(children1, len1, newnode2)
+                        let (node2_1, maybe_node2_2) = Node::maybe_concat(children1.pop().unwrap(), node2);
+                        children1.push(node2_1);
+                        if let Some(node2_2) = maybe_node2_2 {
+                            insert_maybe_split(children1, len1, node2_2)
                                 .map(Node::from_children)
                         } else {
-                            debug_assert_eq!(newnode2.height(), h1);
-                            let mut newchildren2 = newnode2.into_children_must();
-                            let merged = {
-                                let newchildren2 = NP::make_mut(&mut newchildren2);
-                                balance_maybe_merge::<_, NP>(children1, newchildren2)
-                            };
-                            if merged {
-                                None
-                            } else {
-                                Some(Node::from_children(newchildren2))
-                            }
+                            None
                         }
                     }
                 };
