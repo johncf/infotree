@@ -162,7 +162,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         insert_maybe_split(children2, 0, node1)
                             .map(Node::from_children)
                     } else {
-                        let (node1_1, maybe_node1_2) = Node::maybe_concat(node1, children2.remove(0).unwrap());
+                        let (node1_1, maybe_node1_2) = Node::maybe_concat(node1, children2.remove(0));
                         children2.insert(0, node1_1);
                         if let Some(node1_2) = maybe_node1_2 {
                             insert_maybe_split(children2, 1, node1_2)
@@ -290,7 +290,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         if !contains { before = before.extend(node.info()); }
                         contains
                     }).unwrap();
-                    let node = NP::make_mut(&mut nodes).remove(index).unwrap();
+                    let node = NP::make_mut(&mut nodes).remove(index);
                     match __inner(node, before, path_tick, action) {
                         NodeAction::Remove => {
                             let parent = Node::from_children(nodes);
@@ -301,8 +301,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                             }
                         }
                         NodeAction::Replace(node) => {
-                            let _res = NP::make_mut(&mut nodes).insert(index, node);
-                            debug_assert!(_res.is_none());
+                            NP::make_mut(&mut nodes).insert(index, node);
                             let parent = Node::from_children(nodes);
                             NodeAction::Replace(parent)
                         }
@@ -325,8 +324,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                                         merged = left_int.try_merge_with(right_int);
                                     }
                                     if !merged {
-                                        let _res = nodes.insert(index, node);
-                                        debug_assert!(_res.is_none());
+                                        nodes.insert(index, node);
                                     }
                                 }
                                 let parent = Node::from_children(nodes);
@@ -347,17 +345,16 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                                     let nodes = NP::make_mut(&mut nodes);
                                     let (mut left, right) =
                                         if index < nodes.len() {
-                                            (leaf, nodes.remove(index).unwrap().into_leaf_must())
+                                            (leaf, nodes.remove(index).into_leaf_must())
                                         } else {
                                             index -= 1;
-                                            (nodes.remove(index).unwrap().into_leaf_must(), leaf)
+                                            (nodes.remove(index).into_leaf_must(), leaf)
                                         };
                                     match left.merge_maybe_split(right) {
-                                        Some(right) => { nodes.insert(index, Node::from_leaf(right)); }
+                                        Some(right) => nodes.insert(index, Node::from_leaf(right)),
                                         None => (),
                                     }
-                                    let _res = nodes.insert(index, Node::from_leaf(left));
-                                    debug_assert!(_res.is_none());
+                                    nodes.insert(index, Node::from_leaf(left));
                                 }
                                 let parent = Node::from_children(nodes);
                                 if parent.has_min_size() {
@@ -373,8 +370,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         NodeAction::Insert(node1, node2) => {
                             let maybe_split = {
                                 let nodes = NP::make_mut(&mut nodes);
-                                let _res = nodes.insert(index, node2);
-                                debug_assert!(_res.is_none());
+                                nodes.insert(index, node2);
                                 insert_maybe_split(nodes, index, node1)
                             };
                             let parent = Node::from_children(nodes);
@@ -493,8 +489,7 @@ impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
                         break true;
                     }
                 };
-                let _res = nodes.push(Node::from_leaf(leaf_prev));
-                debug_assert!(_res.is_none());
+                nodes.push(Node::from_leaf(leaf_prev));
                 let node = Node::from_children(NP::new(nodes));
                 if done {
                     IterStatus::Done(node)
@@ -627,15 +622,20 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     debug_assert!(newnode.has_min_size());
 
     if nodes.len() < NP::max_size() {
-        let _res = nodes.insert(idx, newnode);
-        debug_assert!(_res.is_none());
+        nodes.insert(idx, newnode);
         None
     } else {
-        let extra = nodes.insert(idx, newnode).unwrap(); // like unwrap_err
+        let extra;
+        if idx == 16 {
+            extra = newnode;
+        } else {
+            debug_assert!(idx < 16);
+            extra = nodes.pop().unwrap();
+            nodes.insert(idx, newnode);
+        }
         let n_left = balanced_split::<L, NP>(NP::max_size() + 1).0;
         let mut right: ArrayVec<_> = nodes.drain(n_left..).collect();
-        let _res = right.push(extra);
-        debug_assert!(_res.is_none());
+        right.push(extra);
         Some(NP::new(right))
     }
 }
