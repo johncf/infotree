@@ -50,6 +50,28 @@ pub trait PathInfo<Info>: Copy where Info: SumInfo {
     fn extend_inv(self, curr: Info) -> Self;
 }
 
+pub trait SplitLeaf<P, PS=P>: Leaf
+    where P: PathInfo<Self::Info>,
+          PS: SubOrd<P>,
+{
+    /// Try to split off a leaf from `self`, given that it starts at `path_start`, such that the
+    /// second one would start at `needle` when placed in succession.
+    ///
+    /// This method will only be invoked under the following condition:
+    /// ```text
+    /// path_start < needle <= path_start.extend(self.info)
+    /// ```
+    /// The implementer should panic (and report a bug) if that condition is not met.
+    ///
+    /// If `needle < path_start.extend(self.info)`, then it must return `Some(leaf)` such that
+    /// after the operation `needle == path_start.extend(self.info)`.
+    ///
+    /// OTOH, if this is called on a leaf with `needle == path_start.extend(self.info)`, then it
+    /// may return `None` or some value depending on what makes the path info increment, and
+    /// whether there is any data to the right of that.
+    fn split_off(&mut self, path_start: P, needle: PS) -> Option<Self>;
+}
+
 /// Substructure ordering.
 ///
 /// Useful for comparing a structure having multiple fields with another having a subset of those
