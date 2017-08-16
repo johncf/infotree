@@ -206,16 +206,38 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         }
     }
 
-    /// Returns whether `path_before <= path_tick < path_before.extend(self.info)`.
-    pub fn contains_path_tick<PI, PS>(&self, path_before: PI, path_tick: PS) -> bool
+    /// Returns whether `needle` starts within this node's range.
+    ///
+    /// Condition: `start < needle <= start.extend(self.info)`.
+    pub fn path_starts_within<PI, PS>(&self, start: PI, needle: PS) -> bool
         where PI: PathInfo<L::Info>,
               PS: SubOrd<PI>,
     {
-        match path_before.sup_cmp(&path_tick) {
+        match start.sup_cmp(&needle) {
+            Ordering::Less => {
+                let info = self.info();
+                let end = start.extend(info);
+                match needle.sub_cmp(&end) {
+                    Ordering::Less | Ordering::Equal => true,
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns whether `needle` ends within this node's range.
+    ///
+    /// Condition: `start <= needle < start.extend(self.info)`.
+    pub fn path_ends_within<PI, PS>(&self, start: PI, needle: PS) -> bool
+        where PI: PathInfo<L::Info>,
+              PS: SubOrd<PI>,
+    {
+        match start.sup_cmp(&needle) {
             Ordering::Less | Ordering::Equal => {
                 let info = self.info();
-                let path_after = path_before.extend(info);
-                match path_tick.sub_cmp(&path_after) {
+                let end = start.extend(info);
+                match needle.sub_cmp(&end) {
                     Ordering::Less => true,
                     _ => false,
                 }
@@ -224,7 +246,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         }
     }
 
-    /// Fetch the leaf satisfying `contains_path_tick` condition.
+    /// Fetch the leaf satisfying `path_ends_within` condition.
     ///
     /// `PI::default()` is used as the path info at the beginning of the tree.
     pub fn get_path_tick<PI, PS>(&self, path_tick: PS) -> Option<LeafRef<L, PI>>
@@ -241,7 +263,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 Node::Internal(InternalVal { ref nodes, .. }) => {
                     let mut before = path_start;
                     for node in nodes.iter() {
-                        if !node.contains_path_tick(before, path_tick) {
+                        if !node.path_ends_within(before, path_tick) {
                             before = before.extend(node.info());
                             continue;
                         }
@@ -258,14 +280,14 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     },
             }
         }
-        if self.contains_path_tick(PI::default(), path_tick) {
+        if self.path_ends_within(PI::default(), path_tick) {
             Some(__inner(self, PI::default(), path_tick))
         } else {
             None
         }
     }
 
-    /// Do `action` at leaf satisfying `contains_path_tick` condition. `action` will be called
+    /// Do `action` at leaf satisfying `path_ends_within` condition. `action` will be called
     /// with the leaf containing `path_tick` along with path info before that leaf, and it should
     /// return the action to be taken at that leaf as a `LeafAction` object.
     ///
@@ -286,7 +308,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 Node::Internal(InternalVal { mut nodes, .. }) => {
                     let mut before = path_start;
                     let index = nodes.iter().position(|node| {
-                        let contains = node.contains_path_tick(before, path_tick);
+                        let contains = node.path_ends_within(before, path_tick);
                         if !contains { before = before.extend(node.info()); }
                         contains
                     }).unwrap();
@@ -391,7 +413,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     NodeAction::from(action(path_start, val))
             }
         }
-        if self.contains_path_tick(PI::default(), path_tick) {
+        if self.path_ends_within(PI::default(), path_tick) {
             match __inner(self, PI::default(), path_tick, action) {
                 NodeAction::Remove => ActionResult::Empty,
                 NodeAction::Replace(node) | NodeAction::Merge(node) => ActionResult::Updated(node),
