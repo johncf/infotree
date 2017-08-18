@@ -206,224 +206,70 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         }
     }
 
-    /// Returns whether `needle` starts within this node's range.
-    ///
-    /// Condition: `start < needle <= start.extend(self.info)`.
-    pub fn path_starts_within<PI, PS>(&self, start: PI, needle: PS) -> bool
-        where PI: PathInfo<L::Info>,
-              PS: SubOrd<PI>,
-    {
-        match start.sup_cmp(&needle) {
-            Ordering::Less => {
-                let info = self.info();
-                let end = start.extend(info);
-                match needle.sub_cmp(&end) {
-                    Ordering::Less | Ordering::Equal => true,
-                    _ => false,
-                }
-            }
-            _ => false,
-        }
-    }
-
-    /// Returns whether `needle` ends within this node's range.
-    ///
-    /// Condition: `start <= needle < start.extend(self.info)`.
-    pub fn path_ends_within<PI, PS>(&self, start: PI, needle: PS) -> bool
-        where PI: PathInfo<L::Info>,
-              PS: SubOrd<PI>,
-    {
-        match start.sup_cmp(&needle) {
-            Ordering::Less | Ordering::Equal => {
-                let info = self.info();
-                let end = start.extend(info);
-                match needle.sub_cmp(&end) {
-                    Ordering::Less => true,
-                    _ => false,
-                }
-            }
-            _ => false,
-        }
-    }
-
-    /// Fetch the leaf satisfying `path_ends_within` condition.
+    /// Calls `f` with all leaves between the ones satisfying (TODO explain)
     ///
     /// `PI::default()` is used as the path info at the beginning of the tree.
-    pub fn get_path_tick<PI, PS>(&self, path_tick: PS) -> Option<LeafRef<L, PI>>
+    pub fn visit_subseq<'a, PI, PS, F>(&'a self, start: PS, end: PS, mut f: F)
         where PI: PathInfo<L::Info> + Default,
-              PS: SubOrd<PI> + Copy,
+              PS: SubOrd<PI> + Ord + Copy,
+              F: FnMut(LeafRef<'a, L, PI>),
     {
-        fn __inner<L, NP, PI, PS>(node: &Node<L, NP>, path_start: PI, path_tick: PS) -> LeafRef<L, PI>
+        fn __inner<'a, L, NP, PI, PS, F>(node: &'a Node<L, NP>, root: PI, start: PS, end: PS, f: &mut F)
             where L: Leaf,
                   NP: NodesPtr<L>,
                   PI: PathInfo<L::Info>,
                   PS: SubOrd<PI> + Copy,
+                  F: FnMut(LeafRef<'a, L, PI>),
         {
             match *node {
                 Node::Internal(InternalVal { ref nodes, .. }) => {
-                    let mut before = path_start;
-                    for node in nodes.iter() {
-                        if !node.path_ends_within(before, path_tick) {
-                            before = before.extend(node.info());
-                            continue;
+                    let mut node_iter = nodes.iter();
+                    let mut prev = root;
+                    let mut cur_node = None;
+                    while let Some(node) = node_iter.next() {
+                        let next = prev.extend(node.info());
+                        match start.sub_cmp(&next) {
+                            Ordering::Greater => prev = next,
+                            _ => { // start <= next
+                                cur_node = Some(node);
+                                break;
+                            }
                         }
-                        return __inner(node, before, path_tick);
                     }
-                    unreachable!();
+                    debug_assert!(cur_node.is_some());
+                    while let Some(node) = cur_node {
+                        if let Ordering::Less = prev.sup_cmp(&end) { // prev < end
+                            __inner(node, prev, start, end, f);
+                            prev = prev.extend(node.info())
+                        } else {
+                            break;
+                        }
+                        cur_node = node_iter.next();
+                    }
                 }
-                Node::Leaf(LeafVal { ref val, .. }) =>
-                    LeafRef {
+                Node::Leaf(LeafVal { ref val, info }) => {
+                    let next = root.extend(info);
+                    f(LeafRef {
                         leaf: val,
-                        info: node.info(),
-                        before: path_start,
-                        after: path_start.extend(node.info()),
-                    },
-            }
-        }
-        if self.path_ends_within(PI::default(), path_tick) {
-            Some(__inner(self, PI::default(), path_tick))
-        } else {
-            None
-        }
-    }
-
-    /// Do `action` at leaf satisfying `path_ends_within` condition. `action` will be called
-    /// with the leaf containing `path_tick` along with path info before that leaf, and it should
-    /// return the action to be taken at that leaf as a `LeafAction` object.
-    ///
-    /// Panics if `path_tick` was out of bounds w.r.t `path_start`.
-    pub fn action_path_tick<PI, PS, F>(self, path_tick: PS, action: F) -> ActionResult<L, NP>
-        where PI: PathInfo<L::Info> + Default,
-              PS: SubOrd<PI> + Copy,
-              F: FnOnce(PI, L) -> LeafAction<L>,
-    {
-        fn __inner<L, NP, PI, PS, F>(node: Node<L, NP>, path_start: PI, path_tick: PS, action: F) -> NodeAction<L, NP>
-            where L: Leaf,
-                  NP: NodesPtr<L>,
-                  PI: PathInfo<L::Info>,
-                  PS: SubOrd<PI> + Copy,
-                  F: FnOnce(PI, L) -> LeafAction<L>,
-        {
-            match node {
-                Node::Internal(InternalVal { mut nodes, .. }) => {
-                    let mut before = path_start;
-                    let index = nodes.iter().position(|node| {
-                        let contains = node.path_ends_within(before, path_tick);
-                        if !contains { before = before.extend(node.info()); }
-                        contains
-                    }).unwrap();
-                    let node = NP::make_mut(&mut nodes).remove(index);
-                    match __inner(node, before, path_tick, action) {
-                        NodeAction::Remove => {
-                            let parent = Node::from_children(nodes);
-                            if parent.has_min_size() {
-                                NodeAction::Replace(parent)
-                            } else {
-                                NodeAction::Merge(parent)
-                            }
-                        }
-                        NodeAction::Replace(node) => {
-                            NP::make_mut(&mut nodes).insert(index, node);
-                            let parent = Node::from_children(nodes);
-                            NodeAction::Replace(parent)
-                        }
-                        NodeAction::Merge(mut node) => {
-                            debug_assert!(!node.is_leaf());
-                            if nodes.len() > 0 {
-                                let merged;
-                                {
-                                    let nodes = NP::make_mut(&mut nodes);
-                                    if index < nodes.len() {
-                                        let left_int = node.internal_mut_must();
-                                        let right_int = nodes.get_mut(index).unwrap().internal_mut_must();
-                                        merged = left_int.try_merge_with(right_int);
-                                        if merged {
-                                            mem::swap(left_int, right_int);
-                                        }
-                                    } else {
-                                        let left_int = nodes.get_mut(index - 1).unwrap().internal_mut_must();
-                                        let right_int = node.internal_mut_must();
-                                        merged = left_int.try_merge_with(right_int);
-                                    }
-                                    if !merged {
-                                        nodes.insert(index, node);
-                                    }
-                                }
-                                let parent = Node::from_children(nodes);
-                                if parent.has_min_size() {
-                                    NodeAction::Replace(parent)
-                                } else {
-                                    NodeAction::Merge(parent)
-                                }
-                            } else {
-                                // this should only happen at root node.
-                                NodeAction::Replace(node)
-                            }
-                        }
-                        NodeAction::MergeLeaf(leaf) => {
-                            if nodes.len() > 0 {
-                                let mut index = index;
-                                {
-                                    let nodes = NP::make_mut(&mut nodes);
-                                    let (mut left, right) =
-                                        if index < nodes.len() {
-                                            (leaf, nodes.remove(index).into_leaf_must())
-                                        } else {
-                                            index -= 1;
-                                            (nodes.remove(index).into_leaf_must(), leaf)
-                                        };
-                                    match left.merge_maybe_split(right) {
-                                        Some(right) => nodes.insert(index, Node::from_leaf(right)),
-                                        None => (),
-                                    }
-                                    nodes.insert(index, Node::from_leaf(left));
-                                }
-                                let parent = Node::from_children(nodes);
-                                if parent.has_min_size() {
-                                    NodeAction::Replace(parent)
-                                } else {
-                                    NodeAction::Merge(parent)
-                                }
-                            } else {
-                                // this should only happen at root node.
-                                NodeAction::Replace(Node::from_leaf(leaf))
-                            }
-                        }
-                        NodeAction::Insert(node1, node2) => {
-                            let maybe_split = {
-                                let nodes = NP::make_mut(&mut nodes);
-                                nodes.insert(index, node2);
-                                insert_maybe_split(nodes, index, node1)
-                            };
-                            let parent = Node::from_children(nodes);
-                            match maybe_split {
-                                Some(right_nodes) => {
-                                    let right_parent = Node::from_children(right_nodes);
-                                    NodeAction::Insert(parent, right_parent)
-                                }
-                                None => NodeAction::Replace(parent),
-                            }
-                        }
-                        NodeAction::Split(node, maybe_node) => {
-                            unimplemented!() // TODO
-                        }
-                    }
+                        info: info,
+                        before: root,
+                        after: next,
+                    });
                 }
-                Node::Leaf(LeafVal { val, .. }) =>
-                    NodeAction::from(action(path_start, val))
             }
         }
-        if self.path_ends_within(PI::default(), path_tick) {
-            match __inner(self, PI::default(), path_tick, action) {
-                NodeAction::Remove => ActionResult::Empty,
-                NodeAction::Replace(node) | NodeAction::Merge(node) => ActionResult::Updated(node),
-                NodeAction::MergeLeaf(leaf) => ActionResult::Updated(Node::from_leaf(leaf)),
-                NodeAction::Insert(node1, node2) => ActionResult::Updated(Node::join_two(node1, node2)),
-                NodeAction::Split(node, maybe_node) => ActionResult::Split(node, maybe_node),
-            }
-        } else {
-            panic!("Nooooooo~~~~~")
+
+        if let Ordering::Greater = start.cmp(&end) {
+            return;
         }
+
+        let root = PI::default();
+        let next = root.extend(self.info());
+        if let Ordering::Greater = start.sub_cmp(&next) {
+            return;
+        }
+
+        __inner(self, root, start, end, &mut f)
     }
 }
 
@@ -433,54 +279,6 @@ pub struct LeafRef<'a, L: Leaf + 'a, PI: PathInfo<L::Info>> {
     pub info: L::Info,
     pub before: PI,
     pub after: PI,
-}
-
-pub enum LeafAction<L: Leaf> {
-    /// Remove the current leaf.
-    Remove,
-    /// Replace the current leaf.
-    Replace(L),
-    /// Replace the current leaf with two. Both `L`'s must satisfy `has_min_size`.
-    Insert(L, L),
-    /// Split the tree starting from the current leaf. The left `L` will go to the left tree and
-    /// the right `L` to the right.
-    Split(L, Option<L>),
-}
-
-pub enum ActionResult<L: Leaf, NP: NodesPtr<L>> {
-    Empty,
-    Updated(Node<L, NP>),
-    Split(Node<L, NP>, Option<Node<L, NP>>),
-}
-
-enum NodeAction<L: Leaf, NP: NodesPtr<L>> {
-    Remove,
-    Replace(Node<L, NP>),
-    Merge(Node<L, NP>), // if `Node` is too small
-    MergeLeaf(L), // if `L` is too small
-    Insert(Node<L, NP>, Node<L, NP>),
-    Split(Node<L, NP>, Option<Node<L, NP>>),
-}
-
-impl<L: Leaf, NP: NodesPtr<L>> From<LeafAction<L>> for NodeAction<L, NP> {
-    fn from(action: LeafAction<L>) -> Self {
-        match action {
-            LeafAction::Remove => NodeAction::Remove,
-            LeafAction::Replace(leaf) =>
-                if leaf.has_min_size() {
-                    NodeAction::Replace(Node::from_leaf(leaf))
-                } else {
-                    NodeAction::MergeLeaf(leaf)
-                },
-            LeafAction::Insert(leaf1, leaf2) => {
-                assert!(leaf1.has_min_size() && leaf2.has_min_size(),
-                        "At least one of the inserted leaf does not has_min_size!!");
-                NodeAction::Insert(Node::from_leaf(leaf1), Node::from_leaf(leaf2))
-            }
-            LeafAction::Split(leaf, maybe_leaf) =>
-                NodeAction::Split(Node::from_leaf(leaf), maybe_leaf.map(Node::from_leaf)),
-        }
-    }
 }
 
 /// **Panics** if the iterator is empty.
@@ -824,66 +622,55 @@ mod tests {
         for i in 1..16 {
             node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
         }
+        let mut sums = Vec::new();
         for i in 0..16 {
             println!("{}", i);
-            let leaf_ref = node.get_path_tick::<ListPath, _>(ListIndex(i)).unwrap();
-            assert_eq!(leaf_ref.leaf, &ListLeaf(i));
-            assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
-            assert_eq!(leaf_ref.before, ListPath { index: i, run: i.wrapping_sub(1)*i/2 });
-            assert_eq!(leaf_ref.after, ListPath { index: i + 1, run: i*(i+1)/2 });
+            let mut hit = 0;
+            node.visit_subseq::<ListPath, _, _>(ListIndex(i+1), ListIndex(i+1), |leaf_ref| {
+                assert_eq!(leaf_ref.leaf, &ListLeaf(i));
+                assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
+                assert_eq!(leaf_ref.before, ListPath { index: i, run: i.wrapping_sub(1)*i/2 });
+                assert_eq!(leaf_ref.after, ListPath { index: i + 1, run: i*(i+1)/2 });
+                sums.push(leaf_ref.after.run);
+                hit += 1;
+            });
+            assert_eq!(hit, 1);
         }
-        for i in 0..(15*16/2) {
-            println!("{}", i);
-            let leaf_ref = node.get_path_tick::<ListRun, _>(ListRun(i)).unwrap();
-            let val = leaf_ref.leaf.0;
-            assert!(val > 0);
-            assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: val });
-            assert_eq!(leaf_ref.before, ListRun((val-1)*val/2));
-            assert_eq!(leaf_ref.after, ListRun(val*(val+1)/2));
-            assert!(leaf_ref.before.0 <= i && i < leaf_ref.after.0);
+        let mut sum_hits = 0;
+        for i in 0..(15*16/2 + 1) {
+            let mut hit = 0;
+            node.visit_subseq::<ListRun, _, _>(ListRun(i), ListRun(i+1), |leaf_ref| {
+                let val = leaf_ref.leaf.0;
+                println!("{}, val: {}", i, val);
+                assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: val });
+                assert_eq!(leaf_ref.before, ListRun(val.wrapping_sub(1)*val/2));
+                assert_eq!(leaf_ref.after, ListRun(val*(val+1)/2));
+                assert!(i <= leaf_ref.after.0);
+                assert!(leaf_ref.before.0 < i+1);
+                hit += 1;
+            });
+            if let Ok(val) = sums.binary_search(&i) {
+                println!("val: {}", val);
+                if val < 16-1 {
+                    assert_eq!(hit, 2);
+                } else {
+                    assert_eq!(hit, 1);
+                }
+                sum_hits += 1;
+            } else {
+                assert_eq!(hit, 1);
+            }
         }
+        assert_eq!(sum_hits, 16);
     }
 
     #[test]
     fn insert() {
-        use super::{ActionResult, LeafAction};
-        let mut node = NodeRc::from_leaf(ListLeaf(0));
-        for i in 1..137 {
-            match node.action_path_tick::<ListIndex, _, _>(
-                      ListIndex(0),
-                      |_, leaf| LeafAction::Insert(ListLeaf(i), leaf))
-            {
-                ActionResult::Updated(newnode) => node = newnode,
-                _ => unreachable!(),
-            };
-        }
-        assert_eq!(node.height(), 3);
-        for i in 0..137 {
-            println!("{}", i);
-            let leaf_ref = node.get_path_tick::<ListIndex, _>(ListIndex(i)).unwrap();
-            assert_eq!(leaf_ref.leaf, &ListLeaf(136-i));
-        }
+        // TODO
     }
 
     #[test]
     fn remove() {
-        use super::{ActionResult, LeafAction};
-        let mut node = NodeRc::from_leaf(ListLeaf(0));
-        for i in 1..256 {
-            node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
-        }
-        assert_eq!(node.height(), 3);
-        for _ in 0..128+65 {
-            match node.action_path_tick::<ListIndex, _, _>(ListIndex(0), |_, _| LeafAction::Remove) {
-                ActionResult::Updated(newnode) => node = newnode,
-                _ => unreachable!(),
-            };
-        }
-        assert_eq!(node.height(), 2);
-    }
-
-    #[test]
-    fn merge_leaf() {
         // TODO
     }
 
