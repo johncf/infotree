@@ -21,9 +21,11 @@ pub trait Leaf: Clone {
     /// size. Default behavior is to return `Some(right)`.
     ///
     /// If this method chooses to merge them into one, must satisfy the following condition:
+    ///
     /// ```text
     /// new_self.info = old_self.info.gather(right.info)
     /// ```
+    ///
     /// On the other hand, if it chooses to split, then both the modified `self` and the returned
     /// `Leaf` must have `has_min_size` to be true.
     fn merge_maybe_split(&mut self, right: Self) -> Option<Self> {
@@ -58,9 +60,11 @@ pub trait SplitLeaf<P, PS=P>: Leaf
     /// second one would start at `needle` when placed in succession.
     ///
     /// This method will only be invoked under the following condition:
+    ///
     /// ```text
     /// path_start < needle <= path_start.extend(self.info)
     /// ```
+    ///
     /// The implementer should panic (and report a bug) if that condition is not met.
     ///
     /// If `needle < path_start.extend(self.info)`, then it must return `Some(leaf)` such that

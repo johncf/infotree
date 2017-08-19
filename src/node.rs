@@ -206,7 +206,15 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         }
     }
 
-    /// Calls `f` with all leaves between the ones satisfying (TODO explain)
+    /// Calls `f` with all leaves satisfying the following conditions:
+    ///
+    /// ```text
+    /// start <= path_info_after
+    /// path_info_before < end
+    /// ```
+    ///
+    /// where `path_info_before` is the computed path info when traversal reaches the start of that
+    /// node, and `path_info_after = path_info_before.extend(node.info)`.
     ///
     /// `PI::default()` is used as the path info at the beginning of the tree.
     pub fn visit_subseq<'a, PI, PS, F>(&'a self, start: PS, end: PS, mut f: F)
@@ -259,13 +267,13 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             }
         }
 
-        if let Ordering::Greater = start.cmp(&end) {
+        if start > end {
             return;
         }
 
         let root = PI::default();
         let next = root.extend(self.info());
-        if let Ordering::Greater = start.sub_cmp(&next) {
+        if let Ordering::Greater = start.sub_cmp(&next) { // start > next
             return;
         }
 
