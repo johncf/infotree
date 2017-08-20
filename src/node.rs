@@ -279,6 +279,95 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 
         __inner(self, root, start, end, &mut f)
     }
+
+    pub fn remove_subseq<PI, PS>(self, start: PS, end: PS) -> RemoveResult<L, NP>
+        where PI: PathInfo<L::Info> + Default,
+              PS: SubOrd<PI> + Ord + Copy,
+    {
+        use self::RemoveResult::*;
+        fn __nodes_push<L, NP>(nodes: &mut ArrayVec<NP::Array>, node: Node<L, NP>)
+            where L: Leaf,
+                  NP: NodesPtr<L>,
+        {
+            unimplemented!()
+        }
+
+        fn __inner<L, NP, PI, PS>(node: Node<L, NP>, root: PI, start: PS, end: PS) -> RemoveResult<L, NP>
+            where L: Leaf,
+                  NP: NodesPtr<L>,
+                  PI: PathInfo<L::Info>,
+                  PS: SubOrd<PI> + Copy,
+        {
+            match node {
+                Node::Internal(InternalVal { mut nodes, .. }) => {
+                    let mut nodes_iter = NP::make_mut(&mut nodes).drain(..);
+                    let mut prev = root;
+                    let mut remaining_nodes = ArrayVec::<NP::Array>::new();
+                    let mut cur_node = None;
+                    while let Some(node) = nodes_iter.next() {
+                        let next = prev.extend(node.info());
+                        match start.sub_cmp(&next) {
+                            Ordering::Greater => {
+                                remaining_nodes.push(node);
+                                prev = next;
+                            }
+                            _ => { // start <= next
+                                cur_node = Some(node);
+                                break;
+                            }
+                        }
+                    }
+                    debug_assert!(cur_node.is_some());
+                    let mut removed_nodes = ArrayVec::<NP::Array>::new();
+                    while let Some(node) = cur_node {
+                        let next = prev.extend(node.info());
+                        match __inner(node, prev, start, end) {
+                            NothingToDo(original) => {
+                                remaining_nodes.push(original);
+                                break;
+                            }
+                            FullyRemoved(node) => {
+                                removed_nodes.push(node);
+                            }
+                            RangeRemoved { remaining, removed } => {
+                                // FIXME remaining or removed may not satisfy has_min_size
+                                remaining_nodes.push(remaining);
+                                removed_nodes.push(removed);
+                            }
+                        }
+                        prev = next;
+                        cur_node = nodes_iter.next();
+                    }
+                    remaining_nodes.extend(nodes_iter);
+                    unimplemented!()
+                }
+                Node::Leaf(LeafVal { val, info }) => {
+                    unimplemented!()
+                }
+            }
+        }
+
+        if start >= end {
+            return NothingToDo(self);
+        }
+
+        let root = PI::default();
+        let next = root.extend(self.info());
+        if let Ordering::Greater = start.sub_cmp(&next) {
+            return NothingToDo(self);
+        }
+
+        __inner(self, root, start, end)
+    }
+}
+
+pub enum RemoveResult<L: Leaf, NP: NodesPtr<L>> {
+    NothingToDo(Node<L, NP>),
+    FullyRemoved(Node<L, NP>),
+    RangeRemoved {
+        remaining: Node<L, NP>,
+        removed: Node<L, NP>
+    },
 }
 
 #[derive(Debug)]
