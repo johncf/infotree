@@ -25,6 +25,10 @@ mod links {
         fn max_size() -> usize {
             <Self::Array as Array>::capacity()
         }
+
+        fn min_size() -> usize {
+            Self::max_size()/2
+        }
     }
 
     def_nodes_ptr_rc!(Arc16, Arc, 16);
@@ -605,10 +609,10 @@ impl<L: Leaf, NP: NodesPtr<L>> FromIterator<L> for Node<L, NP> {
 fn balanced_split<L: Leaf, NP: NodesPtr<L>>(total: usize) -> (usize, usize) {
     debug_assert!(NP::max_size() <= total && total <= 2*NP::max_size());
     // Make left heavy. Splitting at midpoint is another option
-    let n_left = cmp::min(total - NP::max_size()/2, NP::max_size());
+    let n_left = cmp::min(total - NP::min_size(), NP::max_size());
     let n_right = total - n_left;
-    debug_assert!(NP::max_size()/2 <= n_left && n_left <= NP::max_size());
-    debug_assert!(NP::max_size()/2 <= n_right && n_right <= NP::max_size());
+    debug_assert!(NP::min_size() <= n_left && n_left <= NP::max_size());
+    debug_assert!(NP::min_size() <= n_right && n_right <= NP::max_size());
     (n_left, n_right)
 }
 
@@ -699,23 +703,23 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalT<L, NP> {
             debug_assert_eq!(self.nodes.len(), len1 + len2);
             self.info = merged_info;
             None
-        } else if len1 < NP::max_size()/2 || len2 < NP::max_size()/2 {
-            let (newlen1, newlen2) = balanced_split::<L, NP>(len1 + len2);
-            if len1 > len2 {
-                let other_nodes = NP::make_mut(&mut other.nodes);
-                let mut tmp_other_nodes = ArrayVec::<NP::Array>::new();
-                tmp_other_nodes.extend(NP::make_mut(&mut self.nodes).drain(newlen1..));
-                tmp_other_nodes.extend(other_nodes.drain(..));
-                mem::swap(other_nodes, &mut tmp_other_nodes);
-            } else {
-                let drain2 = len2 - newlen2;
-                NP::make_mut(&mut self.nodes).extend(NP::make_mut(&mut other.nodes).drain(..drain2));
-            }
-            debug_assert_eq!(self.nodes.len() + other.nodes.len(), len1 + len2);
-            self.info = Self::summarize(&self.nodes).0;
-            other.info = Self::summarize(&other.nodes).0;
-            Some(other)
         } else {
+            if len1 < NP::min_size() || len2 < NP::min_size() {
+                let (newlen1, newlen2) = balanced_split::<L, NP>(len1 + len2);
+                if len1 > len2 {
+                    let other_nodes = NP::make_mut(&mut other.nodes);
+                    let mut tmp_other_nodes = ArrayVec::<NP::Array>::new();
+                    tmp_other_nodes.extend(NP::make_mut(&mut self.nodes).drain(newlen1..));
+                    tmp_other_nodes.extend(other_nodes.drain(..));
+                    mem::swap(other_nodes, &mut tmp_other_nodes);
+                } else {
+                    let drain2 = len2 - newlen2;
+                    NP::make_mut(&mut self.nodes).extend(NP::make_mut(&mut other.nodes).drain(..drain2));
+                }
+                debug_assert_eq!(self.nodes.len() + other.nodes.len(), len1 + len2);
+                self.info = Self::summarize(&self.nodes).0;
+                other.info = Self::summarize(&other.nodes).0;
+            }
             Some(other)
         }
     }
@@ -731,7 +735,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 
     pub(crate) fn has_min_size(&self) -> bool {
         match *self {
-            Node::Internal(ref int) => int.nodes.len() >= NP::max_size()/2,
+            Node::Internal(ref int) => int.nodes.len() >= NP::min_size(),
             Node::Leaf(LeafT { ref val, .. }) => val.has_min_size(),
         }
     }
