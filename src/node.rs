@@ -1,4 +1,4 @@
-use traits::{SumInfo, Leaf, PathInfo, SubOrd, SupOrd};
+use traits::{SumInfo, Leaf, PathInfo, SplitLeaf, SubOrd, SupOrd};
 
 use arrayvec::ArrayVec;
 
@@ -280,84 +280,199 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         __inner(self, root, start, end, &mut f)
     }
 
-    pub fn remove_subseq<PI, PS>(self, start: PS, end: PS) -> RemoveResult<L, NP>
-        where PI: PathInfo<L::Info> + Default,
+    pub fn remove_subseq<PI, PS>(self, range: PathRange<PS>) -> RemoveResult<L, NP>
+        where L: SplitLeaf<PI, PS>,
+              PI: PathInfo<L::Info> + Default,
               PS: SubOrd<PI> + Ord + Copy,
     {
         use self::RemoveResult::*;
-        fn __nodes_push<L, NP>(nodes: &mut ArrayVec<NP::Array>, node: Node<L, NP>)
-            where L: Leaf,
-                  NP: NodesPtr<L>,
+        use self::Ordering::*;
+
+        fn __push<L, NP>(nodes: &mut ArrayVec<NP::Array>, newnode: Node<L, NP>, mut last_ok: bool, c_height: usize) -> bool
+            where L: Leaf, NP: NodesPtr<L>,
         {
-            unimplemented!()
+            let is_ok_child = |n: &Node<L, NP>| n.height() == c_height && n.has_min_size();
+            debug_assert!(newnode.height() <= c_height);
+            last_ok = last_ok && is_ok_child(&newnode);
+            if last_ok || nodes.is_empty() {
+                nodes.push(newnode);
+            } else {
+                let node = nodes.pop().unwrap();
+                if newnode.height() == c_height || node.height() == c_height {
+                    let (node0, maybe_node1) = Node::maybe_concat(node, newnode);
+                    nodes.push(node0);
+                    if let Some(node1) = maybe_node1 {
+                        nodes.push(node1);
+                    }
+                    last_ok = true;
+                } else {
+                    let node = Node::concat(node, newnode);
+                    last_ok = is_ok_child(&node);
+                    nodes.push(node);
+                }
+            }
+            last_ok
         }
 
-        fn __inner<L, NP, PI, PS>(node: Node<L, NP>, root: PI, start: PS, end: PS) -> RemoveResult<L, NP>
-            where L: Leaf,
+        fn __into_node<L, NP>(mut nodes: ArrayVec<NP::Array>) -> Node<L, NP>
+            where L: Leaf, NP: NodesPtr<L>,
+        {
+            debug_assert!(!nodes.is_empty());
+            if nodes.len() == 1 {
+                nodes.pop().unwrap()
+            } else {
+                Node::from_children(NP::new(nodes))
+            }
+        }
+
+        fn __inner<L, NP, PI, PS>(node: Node<L, NP>, before: PI, range: PathRange<PS>) -> RemoveResult<L, NP>
+            where L: SplitLeaf<PI, PS>,
                   NP: NodesPtr<L>,
                   PI: PathInfo<L::Info>,
                   PS: SubOrd<PI> + Copy,
         {
+            if range.right_outside(&before) {
+                return NothingToDo(node);
+            } else {
+                let after = before.extend(node.info());
+                if range.left_outside(&before) {
+                    debug_assert!(!range.left_outside(&after));
+                } else {
+                    if !range.right_outside(&after) {
+                        return FullyRemoved(node);
+                    }
+                }
+            }
+
             match node {
-                Node::Internal(InternalVal { mut nodes, .. }) => {
+                Node::Internal(InternalVal { mut nodes, height, .. }) => {
                     let mut nodes_iter = NP::make_mut(&mut nodes).drain(..);
-                    let mut prev = root;
+                    let mut before = before;
                     let mut remaining_nodes = ArrayVec::<NP::Array>::new();
                     let mut cur_node = None;
                     while let Some(node) = nodes_iter.next() {
-                        let next = prev.extend(node.info());
-                        match start.sub_cmp(&next) {
-                            Ordering::Greater => {
-                                remaining_nodes.push(node);
-                                prev = next;
-                            }
-                            _ => { // start <= next
-                                cur_node = Some(node);
-                                break;
-                            }
+                        let after = before.extend(node.info());
+                        if range.left_outside(&after) {
+                            remaining_nodes.push(node);
+                            before = after;
+                        } else {
+                            cur_node = Some(node);
+                            break;
                         }
                     }
                     debug_assert!(cur_node.is_some());
+                    let c_height = height - 1;
+                    let mut remaining_last_ok = true;
+                    let mut removed_last_ok = true;
                     let mut removed_nodes = ArrayVec::<NP::Array>::new();
                     while let Some(node) = cur_node {
-                        let next = prev.extend(node.info());
-                        match __inner(node, prev, start, end) {
+                        let mut remaining_push = |node, last_ok| __push(&mut remaining_nodes, node, last_ok, c_height);
+                        let mut removed_push = |node, last_ok| __push(&mut removed_nodes, node, last_ok, c_height);
+                        let after = before.extend(node.info());
+                        match __inner(node, before, range) {
                             NothingToDo(original) => {
-                                remaining_nodes.push(original);
+                                remaining_last_ok = remaining_push(original, remaining_last_ok);
                                 break;
                             }
                             FullyRemoved(node) => {
-                                removed_nodes.push(node);
+                                removed_last_ok = removed_push(node, removed_last_ok);
                             }
                             RangeRemoved { remaining, removed } => {
-                                // FIXME remaining or removed may not satisfy has_min_size
-                                remaining_nodes.push(remaining);
-                                removed_nodes.push(removed);
+                                // Note1: remaining and/or removed may not satisfy has_min_size
+                                // Note2: this will happen only at the ends (i.e. at most twice)
+                                // TODO debug_assert this condition
+                                remaining_last_ok = remaining_push(remaining, remaining_last_ok);
+                                removed_last_ok = removed_push(removed, removed_last_ok);
                             }
                         }
-                        prev = next;
+                        before = after;
                         cur_node = nodes_iter.next();
                     }
-                    remaining_nodes.extend(nodes_iter);
-                    unimplemented!()
+                    if let Some(node) = nodes_iter.next() {
+                        __push(&mut remaining_nodes, node, remaining_last_ok, c_height);
+                        remaining_nodes.extend(nodes_iter);
+                    }
+                    match (remaining_nodes.is_empty(), removed_nodes.is_empty()) {
+                        (true, true) => unreachable!(),
+                        (false, true) => NothingToDo(__into_node(remaining_nodes)),
+                        (true, false) => FullyRemoved(__into_node(removed_nodes)),
+                        (false, false) => RangeRemoved {
+                            remaining: __into_node(remaining_nodes),
+                            removed: __into_node(removed_nodes),
+                        },
+                    }
                 }
-                Node::Leaf(LeafVal { val, info }) => {
-                    unimplemented!()
+                Node::Leaf(mut leaf_val0) => {
+                    if range.left_outside(&before) {
+                        match leaf_val0.split_off(before, range.left) {
+                            Some(mut leaf_val1) => {
+                                match leaf_val1.split_off(before.extend(leaf_val0.info), range.right) {
+                                    Some(leaf_val2) => {
+                                        let split = leaf_val0.merge_maybe_split(leaf_val2);
+                                        assert!(split.is_none(), "Joining parts after removing a sub-range resulted in a split.");
+                                    }
+                                    None => (),
+                                }
+                                RangeRemoved {
+                                    remaining: Node::Leaf(leaf_val0),
+                                    removed: Node::Leaf(leaf_val1),
+                                }
+                            }
+                            None => NothingToDo(Node::Leaf(leaf_val0)),
+                        }
+                    } else {
+                        match leaf_val0.split_off(before, range.right) {
+                            Some(leaf_val1) => RangeRemoved {
+                                remaining: Node::Leaf(leaf_val0),
+                                removed: Node::Leaf(leaf_val1),
+                            },
+                            None => NothingToDo(Node::Leaf(leaf_val0)),
+                        }
+                    }
                 }
             }
         }
 
-        if start >= end {
+        if range.left >= range.right {
             return NothingToDo(self);
         }
 
-        let root = PI::default();
-        let next = root.extend(self.info());
-        if let Ordering::Greater = start.sub_cmp(&next) {
+        let before = PI::default();
+        let after = before.extend(self.info());
+        if range.left_outside(&after) {
             return NothingToDo(self);
         }
 
-        __inner(self, root, start, end)
+        __inner(self, before, range)
+    }
+}
+
+/// Right-exclusive range.
+#[derive(Clone, Copy)]
+pub struct PathRange<PS: Copy> {
+    pub left: PS,
+    pub right: PS,
+}
+
+impl<PS: Copy> PathRange<PS> {
+    /// Check whether `needle` is outside and left of `self`.
+    pub fn left_outside<I: SumInfo, PI: PathInfo<I>>(self, needle: &PI) -> bool
+        where PS: SubOrd<PI>,
+    {
+        match self.left.sub_cmp(needle) {
+            Ordering::Greater => true, // self.left > needle
+            _ => false,
+        }
+    }
+
+    /// Check whether `needle` is outside and right of `self`.
+    pub fn right_outside<I: SumInfo, PI: PathInfo<I>>(self, needle: &PI) -> bool
+        where PS: SubOrd<PI>,
+    {
+        match self.right.sub_cmp(needle) {
+            Ordering::Less | Ordering::Equal => true, // self.right <= needle
+            _ => false,
+        }
     }
 }
 
@@ -564,6 +679,30 @@ impl<L: Leaf> LeafVal<L> {
             val: leaf,
         }
     }
+
+    pub(crate) fn merge_maybe_split(&mut self, other: Self) -> Option<Self> {
+        let maybe_split = self.val.merge_maybe_split(other.val).map(LeafVal::from_value);
+        if maybe_split.is_some() {
+            self.info = self.val.compute_info();
+        } else {
+            self.info = self.info.gather(other.info);
+        }
+        maybe_split
+    }
+
+    pub(crate) fn split_off<PI, PS>(&mut self, start: PI, needle: PS) -> Option<Self>
+        where L: SplitLeaf<PI, PS>,
+              PI: PathInfo<L::Info>,
+              PS: SubOrd<PI>,
+    {
+        match self.val.split_off(start, needle) {
+            Some(split_val) => {
+                self.info = self.val.compute_info();
+                Some(Self::from_value(split_val))
+            }
+            None => None,
+        }
+    }
 }
 
 impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
@@ -644,15 +783,9 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     pub(crate) fn merge_maybe_split(&mut self, other: Self) -> Option<Self> {
         use self::Node::{Leaf, Internal};
         match *self {
-            Leaf(LeafVal { val: ref mut self_val, info: ref mut self_info }) => {
-                if let Leaf(LeafVal { val: other_val, info: other_info }) = other {
-                    let maybe_split = self_val.merge_maybe_split(other_val).map(Node::from_leaf);
-                    if maybe_split.is_some() {
-                        *self_info = self_val.compute_info();
-                    } else {
-                        *self_info = self_info.gather(other_info);
-                    }
-                    maybe_split
+            Leaf(ref mut self_leaf_val) => {
+                if let Leaf(other_leaf_val) = other {
+                    self_leaf_val.merge_maybe_split(other_leaf_val).map(|olv| Node::Leaf(olv))
                 } else {
                     unreachable!()
                 }
