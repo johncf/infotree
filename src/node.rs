@@ -1,4 +1,4 @@
-use traits::{SumInfo, Leaf, PathInfo, SplitLeaf, SubOrd, SupOrd};
+use traits::{SumInfo, Leaf, PathInfo, SplitLeaf, SubOrd};
 
 use arrayvec::ArrayVec;
 
@@ -217,12 +217,12 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     /// node, and `path_info_after = path_info_before.extend(node.info)`.
     ///
     /// `PI::default()` is used as the path info at the beginning of the tree.
-    pub fn visit_subseq<'a, PI, PS, F>(&'a self, start: PS, end: PS, mut f: F)
+    pub fn visit_subseq<'a, PI, PS, F>(&'a self, range: PathRange<PS>, mut f: F)
         where PI: PathInfo<L::Info> + Default,
               PS: SubOrd<PI> + Ord + Copy,
               F: FnMut(LeafRef<'a, L, PI>),
     {
-        fn __inner<'a, L, NP, PI, PS, F>(node: &'a Node<L, NP>, root: PI, start: PS, end: PS, f: &mut F)
+        fn __inner<'a, L, NP, PI, PS, F>(node: &'a Node<L, NP>, before: PI, range: PathRange<PS>, f: &mut F)
             where L: Leaf,
                   NP: NodesPtr<L>,
                   PI: PathInfo<L::Info>,
@@ -232,52 +232,51 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             match *node {
                 Node::Internal(InternalVal { ref nodes, .. }) => {
                     let mut node_iter = nodes.iter();
-                    let mut prev = root;
+                    let mut before = before;
                     let mut cur_node = None;
                     while let Some(node) = node_iter.next() {
-                        let next = prev.extend(node.info());
-                        match start.sub_cmp(&next) {
-                            Ordering::Greater => prev = next,
-                            _ => { // start <= next
-                                cur_node = Some(node);
-                                break;
-                            }
+                        let after = before.extend(node.info());
+                        if range.left_outside(&after) {
+                            before = after;
+                        } else {
+                            cur_node = Some(node);
+                            break;
                         }
                     }
                     debug_assert!(cur_node.is_some());
                     while let Some(node) = cur_node {
-                        if let Ordering::Less = prev.sup_cmp(&end) { // prev < end
-                            __inner(node, prev, start, end, f);
-                            prev = prev.extend(node.info())
-                        } else {
+                        if range.right_outside(&before) {
                             break;
+                        } else {
+                            __inner(node, before, range, f);
+                            before = before.extend(node.info())
                         }
                         cur_node = node_iter.next();
                     }
                 }
                 Node::Leaf(LeafVal { ref val, info }) => {
-                    let next = root.extend(info);
+                    let after = before.extend(info);
                     f(LeafRef {
                         leaf: val,
                         info: info,
-                        before: root,
-                        after: next,
+                        before: before,
+                        after: after,
                     });
                 }
             }
         }
 
-        if start > end {
+        if range.left > range.right {
             return;
         }
 
-        let root = PI::default();
-        let next = root.extend(self.info());
-        if let Ordering::Greater = start.sub_cmp(&next) { // start > next
+        let before = PI::default();
+        let after = before.extend(self.info());
+        if range.left_outside(&after) {
             return;
         }
 
-        __inner(self, root, start, end, &mut f)
+        __inner(self, before, range, &mut f)
     }
 
     pub fn remove_subseq<PI, PS>(self, range: PathRange<PS>) -> RemoveResult<L, NP>
@@ -286,7 +285,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
               PS: SubOrd<PI> + Ord + Copy,
     {
         use self::RemoveResult::*;
-        use self::Ordering::*;
 
         fn __push<L, NP>(nodes: &mut ArrayVec<NP::Array>, newnode: Node<L, NP>, mut last_ok: bool, c_height: usize) -> bool
             where L: Leaf, NP: NodesPtr<L>,
@@ -848,6 +846,7 @@ mod tests {
 
     #[test]
     fn path_get() {
+        use super::PathRange;
         let mut node = NodeRc::from_leaf(ListLeaf(0));
         for i in 1..16 {
             node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
@@ -856,7 +855,7 @@ mod tests {
         for i in 0..16 {
             println!("{}", i);
             let mut hit = 0;
-            node.visit_subseq::<ListPath, _, _>(ListIndex(i+1), ListIndex(i+1), |leaf_ref| {
+            node.visit_subseq::<ListPath, _, _>(PathRange { left: ListIndex(i+1), right: ListIndex(i+1) }, |leaf_ref| {
                 assert_eq!(leaf_ref.leaf, &ListLeaf(i));
                 assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
                 assert_eq!(leaf_ref.before, ListPath { index: i, run: i.wrapping_sub(1)*i/2 });
@@ -869,7 +868,7 @@ mod tests {
         let mut sum_hits = 0;
         for i in 0..(15*16/2 + 1) {
             let mut hit = 0;
-            node.visit_subseq::<ListRun, _, _>(ListRun(i), ListRun(i+1), |leaf_ref| {
+            node.visit_subseq::<ListRun, _, _>(PathRange { left: ListRun(i), right: ListRun(i+1) }, |leaf_ref| {
                 let val = leaf_ref.leaf.0;
                 println!("{}, val: {}", i, val);
                 assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: val });
