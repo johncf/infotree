@@ -43,14 +43,14 @@ pub use self::links::{NodesPtr, Arc16, Rc16, Box16};
 #[derive(Clone)]
 pub enum Node<L: Leaf, NP> {
     #[doc(hidden)]
-    Internal(InternalVal<L, NP>),
+    Internal(InternalT<L, NP>),
     #[doc(hidden)]
-    Leaf(LeafVal<L>),
+    Leaf(LeafT<L>),
 }
 
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct InternalVal<L: Leaf, NP> {
+pub struct InternalT<L: Leaf, NP> {
     info: L::Info,
     height: usize, // > 0
     nodes: NP,
@@ -58,7 +58,7 @@ pub struct InternalVal<L: Leaf, NP> {
 
 #[doc(hidden)]
 #[derive(Clone)]
-pub struct LeafVal<L: Leaf> {
+pub struct LeafT<L: Leaf> {
     info: L::Info,
     val: L,
 }
@@ -66,27 +66,27 @@ pub struct LeafVal<L: Leaf> {
 impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     #[inline]
     pub fn from_leaf(leaf: L) -> Node<L, NP> {
-        Node::Leaf(LeafVal::from_value(leaf))
+        Node::Leaf(LeafT::from_value(leaf))
     }
 
     /// All nodes should be at the same height, panics otherwise.
     #[inline]
     pub fn from_children(nodes: NP) -> Node<L, NP> {
-        Node::Internal(InternalVal::from_nodes(nodes))
+        Node::Internal(InternalT::from_nodes(nodes))
     }
 
     /// Tries to unwrap the node into leaf. If node is internal, `Err(self)` is returned.
     pub fn into_leaf(self) -> Result<L, Node<L, NP>> {
         match self {
             Node::Internal(_) => Err(self),
-            Node::Leaf(LeafVal { val, .. }) => Ok(val),
+            Node::Leaf(LeafT { val, .. }) => Ok(val),
         }
     }
 
     /// Tries to unwrap the node into its children. If node is leaf, `Err(self)` is returned.
     pub fn into_children(self) -> Result<NP, Node<L, NP>> {
         match self {
-            Node::Internal(InternalVal { nodes, .. }) => Ok(nodes),
+            Node::Internal(InternalT { nodes, .. }) => Ok(nodes),
             Node::Leaf(_) => Err(self),
         }
     }
@@ -94,8 +94,8 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     /// Returns the info for this node, gathered from all its leaves.
     pub fn info(&self) -> L::Info {
         match *self {
-            Node::Internal(InternalVal { info, .. })
-                | Node::Leaf(LeafVal { info, .. }) => info,
+            Node::Internal(InternalT { info, .. })
+                | Node::Leaf(LeafT { info, .. }) => info,
         }
     }
 
@@ -230,7 +230,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                   F: FnMut(LeafRef<'a, L, PI>),
         {
             match *node {
-                Node::Internal(InternalVal { ref nodes, .. }) => {
+                Node::Internal(InternalT { ref nodes, .. }) => {
                     let mut node_iter = nodes.iter();
                     let mut before = before;
                     let mut cur_node = None;
@@ -254,7 +254,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         cur_node = node_iter.next();
                     }
                 }
-                Node::Leaf(LeafVal { ref val, info }) => {
+                Node::Leaf(LeafT { ref val, info }) => {
                     let after = before.extend(info);
                     f(LeafRef {
                         leaf: val,
@@ -343,7 +343,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             }
 
             match node {
-                Node::Internal(InternalVal { mut nodes, height, .. }) => {
+                Node::Internal(InternalT { mut nodes, height, .. }) => {
                     let mut nodes_iter = NP::make_mut(&mut nodes).drain(..);
                     let mut before = before;
                     let mut remaining_nodes = ArrayVec::<NP::Array>::new();
@@ -615,7 +615,7 @@ fn balanced_split<L: Leaf, NP: NodesPtr<L>>(total: usize) -> (usize, usize) {
 // Tries to merge two lists of nodes into one (returns true), otherwise balances the lists so that
 // both of them have at least NP::max_size()/2 nodes (returns false).
 //
-// It is best to avoid a direct call to this in favor of InternalVal::extend_maybe_balance
+// It is best to avoid a direct call to this in favor of InternalT::extend_maybe_balance
 fn balance_maybe_merge<L: Leaf, NP: NodesPtr<L>>(
     children1: &mut ArrayVec<NP::Array>, children2: &mut ArrayVec<NP::Array>
 ) -> bool {
@@ -670,16 +670,16 @@ pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     }
 }
 
-impl<L: Leaf> LeafVal<L> {
+impl<L: Leaf> LeafT<L> {
     pub(crate) fn from_value(leaf: L) -> Self {
-        LeafVal {
+        LeafT {
             info: leaf.compute_info(),
             val: leaf,
         }
     }
 
     pub(crate) fn merge_maybe_split(&mut self, other: Self) -> Option<Self> {
-        let maybe_split = self.val.merge_maybe_split(other.val).map(LeafVal::from_value);
+        let maybe_split = self.val.merge_maybe_split(other.val).map(LeafT::from_value);
         if maybe_split.is_some() {
             self.info = self.val.compute_info();
         } else {
@@ -703,7 +703,7 @@ impl<L: Leaf> LeafVal<L> {
     }
 }
 
-impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
+impl<L: Leaf, NP: NodesPtr<L>> InternalT<L, NP> {
     fn summarize(nodes: &NP) -> (L::Info, usize) {
         let height = nodes[0].height() + 1;
         let mut info = nodes[0].info();
@@ -717,7 +717,7 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
     pub(crate) fn from_nodes(nodes: NP) -> Self {
         assert_ne!(nodes.len(), 0);
         let (info, height) = Self::summarize(&nodes);
-        InternalVal { info, height, nodes }
+        InternalT { info, height, nodes }
     }
 
     // Returns whether `self` was merged with `other`. If `true`, `other` will have zero children
@@ -741,20 +741,6 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalVal<L, NP> {
 }
 
 impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
-    pub(crate) fn internal_mut_must(&mut self) -> &mut InternalVal<L, NP> {
-        match *self {
-            Node::Internal(ref mut int) => int,
-            Node::Leaf(_) => unreachable!("buggy internal_mut_must call"),
-        }
-    }
-
-    pub(crate) fn into_leaf_must(self) -> L {
-        match self.into_leaf() {
-            Ok(leaf) => leaf,
-            Err(_) => unreachable!("buggy into_leaf_must call"),
-        }
-    }
-
     pub(crate) fn into_children_must(self) -> NP {
         match self.into_children() {
             Ok(nodes) => nodes,
@@ -765,7 +751,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     pub(crate) fn has_min_size(&self) -> bool {
         match *self {
             Node::Internal(ref int) => int.nodes.len() >= NP::max_size()/2,
-            Node::Leaf(LeafVal { ref val, .. }) => val.has_min_size(),
+            Node::Leaf(LeafT { ref val, .. }) => val.has_min_size(),
         }
     }
 
@@ -781,9 +767,9 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     pub(crate) fn merge_maybe_split(&mut self, other: Self) -> Option<Self> {
         use self::Node::{Leaf, Internal};
         match *self {
-            Leaf(ref mut self_leaf_val) => {
-                if let Leaf(other_leaf_val) = other {
-                    self_leaf_val.merge_maybe_split(other_leaf_val).map(|olv| Node::Leaf(olv))
+            Leaf(ref mut self_leaf) => {
+                if let Leaf(other_leaf) = other {
+                    self_leaf.merge_maybe_split(other_leaf).map(|ol| Node::Leaf(ol))
                 } else {
                     unreachable!()
                 }
