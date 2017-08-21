@@ -612,36 +612,6 @@ fn balanced_split<L: Leaf, NP: NodesPtr<L>>(total: usize) -> (usize, usize) {
     (n_left, n_right)
 }
 
-// Tries to merge two lists of nodes into one (returns true), otherwise balances the lists so that
-// both of them have at least NP::max_size()/2 nodes (returns false).
-//
-// It is best to avoid a direct call to this in favor of InternalT::extend_maybe_balance
-fn balance_maybe_merge<L: Leaf, NP: NodesPtr<L>>(
-    children1: &mut ArrayVec<NP::Array>, children2: &mut ArrayVec<NP::Array>
-) -> bool {
-    let (len1, len2) = (children1.len(), children2.len());
-    if len1 + len2 <= NP::max_size() {
-        children1.extend(children2.drain(..));
-        debug_assert_eq!(children1.len(), len1 + len2);
-        true
-    } else if len1 < NP::max_size()/2 || len2 < NP::max_size()/2 {
-        let (newlen1, newlen2) = balanced_split::<L, NP>(len1 + len2);
-        if len1 > len2 {
-            let mut tmp_children2 = ArrayVec::<NP::Array>::new();
-            tmp_children2.extend(children1.drain(newlen1..));
-            tmp_children2.extend(children2.drain(..));
-            mem::swap(children2, &mut tmp_children2);
-        } else {
-            let drain2 = len2 - newlen2;
-            children1.extend(children2.drain(..drain2));
-        }
-        debug_assert_eq!(children1.len() + children2.len(), len1 + len2);
-        false
-    } else {
-        false
-    }
-}
-
 // Inserts newnode into the list of nodes at the specified position. If the list overflows, splits
 // the list into two and returns a new node created from right half of the split.
 pub(crate) fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
@@ -720,23 +690,34 @@ impl<L: Leaf, NP: NodesPtr<L>> InternalT<L, NP> {
         InternalT { info, height, nodes }
     }
 
-    // Returns whether `self` was merged with `other`. If `true`, `other` will have zero children
-    // and must not be used any further.
-    pub(crate) fn try_merge_with(&mut self, other: &mut Self) -> bool {
+    pub(crate) fn merge_maybe_split(&mut self, mut other: Self) -> Option<Self> {
         debug_assert_eq!(self.height, other.height);
         let merged_info = self.info.gather(other.info);
-        let merged = {
-            let children_self = NP::make_mut(&mut self.nodes);
-            let children_other = NP::make_mut(&mut other.nodes);
-            balance_maybe_merge::<L, NP>(children_self, children_other)
-        };
-        if merged {
+        let (len1, len2) = (self.nodes.len(), other.nodes.len());
+        if len1 + len2 <= NP::max_size() {
+            NP::make_mut(&mut self.nodes).extend(NP::make_mut(&mut other.nodes).drain(..));
+            debug_assert_eq!(self.nodes.len(), len1 + len2);
             self.info = merged_info;
-        } else {
+            None
+        } else if len1 < NP::max_size()/2 || len2 < NP::max_size()/2 {
+            let (newlen1, newlen2) = balanced_split::<L, NP>(len1 + len2);
+            if len1 > len2 {
+                let other_nodes = NP::make_mut(&mut other.nodes);
+                let mut tmp_other_nodes = ArrayVec::<NP::Array>::new();
+                tmp_other_nodes.extend(NP::make_mut(&mut self.nodes).drain(newlen1..));
+                tmp_other_nodes.extend(other_nodes.drain(..));
+                mem::swap(other_nodes, &mut tmp_other_nodes);
+            } else {
+                let drain2 = len2 - newlen2;
+                NP::make_mut(&mut self.nodes).extend(NP::make_mut(&mut other.nodes).drain(..drain2));
+            }
+            debug_assert_eq!(self.nodes.len() + other.nodes.len(), len1 + len2);
             self.info = Self::summarize(&self.nodes).0;
             other.info = Self::summarize(&other.nodes).0;
+            Some(other)
+        } else {
+            Some(other)
         }
-        merged
     }
 }
 
@@ -775,12 +756,8 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 }
             }
             Internal(ref mut self_int) => {
-                if let Internal(mut other_int) = other {
-                    if self_int.try_merge_with(&mut other_int) {
-                        None
-                    } else {
-                        Some(Internal(other_int))
-                    }
+                if let Internal(other_int) = other {
+                    self_int.merge_maybe_split(other_int).map(|oi| Node::Internal(oi))
                 } else {
                     unreachable!()
                 }
