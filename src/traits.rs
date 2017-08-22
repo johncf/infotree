@@ -56,8 +56,8 @@ pub trait SplitLeaf<P, PS=P>: Leaf
     where P: PathInfo<Self::Info>,
           PS: SubOrd<P>,
 {
-    /// Try to split off a leaf from `self`, given that it starts at `path_start`, such that the
-    /// second one would start at `needle` when placed in succession.
+    /// Given that path info is `before` where the leaf is placed, try to split off a leaf from
+    /// `self` so that the returned leaf would start at `needle` when placed in succession.
     ///
     /// This method will only be invoked under the following condition:
     ///

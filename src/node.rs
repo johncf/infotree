@@ -270,7 +270,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             }
         }
 
-        if range.left > range.right {
+        if !range.is_proper() {
             return;
         }
 
@@ -337,12 +337,10 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 return NothingToDo(node);
             } else {
                 let after = before.extend(node.info());
-                if range.left_outside(&before) {
-                    debug_assert!(!range.left_outside(&after));
-                } else {
-                    if !range.right_outside(&after) {
-                        return FullyRemoved(node);
-                    }
+                debug_assert!(!range.left_outside(&after));
+                if !range.left_outside(&before) && !range.right_outside(&after) {
+                    // before and after is inside range.
+                    return FullyRemoved(node);
                 }
             }
 
@@ -406,36 +404,35 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                 }
                 Node::Leaf(mut leaf_val0) => {
                     if range.left_outside(&before) {
-                        match leaf_val0.split_off(before, range.left) {
-                            Some(mut leaf_val1) => {
-                                match leaf_val1.split_off(before.extend(leaf_val0.info), range.right) {
-                                    Some(leaf_val2) => {
-                                        let split = leaf_val0.merge_maybe_split(leaf_val2);
-                                        assert!(split.is_none(), "Joining parts after removing a sub-range resulted in a split.");
-                                    }
-                                    None => (),
-                                }
-                                RangeRemoved {
-                                    remaining: Node::Leaf(leaf_val0),
-                                    removed: Node::Leaf(leaf_val1),
+                        if let Some(mut leaf_val1) = leaf_val0.split_off(before, range.left) {
+                            let after0 = before.extend(leaf_val0.info);
+                            if range.right_outside(&after0) {
+                                if let Some(leaf_val2) = leaf_val1.split_off(after0, range.right) {
+                                    let split = leaf_val0.merge_maybe_split(leaf_val2);
+                                    assert!(split.is_none(), "Joining parts after removing a \
+                                                              sub-range resulted in a split.");
                                 }
                             }
-                            None => NothingToDo(Node::Leaf(leaf_val0)),
-                        }
-                    } else {
-                        match leaf_val0.split_off(before, range.right) {
-                            Some(leaf_val1) => RangeRemoved {
+                            RangeRemoved {
                                 remaining: Node::Leaf(leaf_val0),
                                 removed: Node::Leaf(leaf_val1),
-                            },
-                            None => NothingToDo(Node::Leaf(leaf_val0)),
+                            }
+                        } else {
+                            NothingToDo(Node::Leaf(leaf_val0))
                         }
+                    } else if let Some(leaf_val1) = leaf_val0.split_off(before, range.right) {
+                        RangeRemoved {
+                            remaining: Node::Leaf(leaf_val0),
+                            removed: Node::Leaf(leaf_val1),
+                        }
+                    } else {
+                        NothingToDo(Node::Leaf(leaf_val0))
                     }
                 }
             }
         }
 
-        if range.left >= range.right {
+        if range.is_empty() {
             return NothingToDo(self);
         }
 
@@ -457,6 +454,18 @@ pub struct PathRange<PS: Copy> {
 }
 
 impl<PS: Copy> PathRange<PS> {
+    pub fn is_proper(self) -> bool
+        where PS: Ord,
+    {
+        self.left <= self.right
+    }
+
+    pub fn is_empty(self) -> bool
+        where PS: Ord,
+    {
+        self.left >= self.right
+    }
+
     /// Check whether `needle` is outside and left of `self`.
     pub fn left_outside<I: SumInfo, PI: PathInfo<I>>(self, needle: &PI) -> bool
         where PS: SubOrd<PI>,
@@ -754,14 +763,14 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
         match *self {
             Leaf(ref mut self_leaf) => {
                 if let Leaf(other_leaf) = other {
-                    self_leaf.merge_maybe_split(other_leaf).map(|ol| Node::Leaf(ol))
+                    self_leaf.merge_maybe_split(other_leaf).map(|ol| Leaf(ol))
                 } else {
                     unreachable!()
                 }
             }
             Internal(ref mut self_int) => {
                 if let Internal(other_int) = other {
-                    self_int.merge_maybe_split(other_int).map(|oi| Node::Internal(oi))
+                    self_int.merge_maybe_split(other_int).map(|oi| Internal(oi))
                 } else {
                     unreachable!()
                 }
@@ -814,10 +823,7 @@ mod tests {
     #[test]
     fn path_get() {
         use super::PathRange;
-        let mut node = NodeRc::from_leaf(ListLeaf(0));
-        for i in 1..16 {
-            node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
-        }
+        let node: NodeRc<_> = (0..16).map(|i| ListLeaf(i)).collect();
         let mut sums = Vec::new();
         for i in 0..16 {
             println!("{}", i);
