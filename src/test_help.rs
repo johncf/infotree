@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use node::{Node, Rc16};
-use traits::{SumInfo, Leaf, PathInfo, SubOrd};
+use traits::{SumInfo, Leaf, PathInfo, SplitLeaf, SubOrd};
 
 use std::cmp::{self, Ordering};
 
@@ -37,6 +37,30 @@ impl Leaf for ListLeaf {
         ListInfo {
             count: 1,
             sum: self.0,
+        }
+    }
+}
+
+impl SplitLeaf<ListPath, ListIndex> for ListLeaf {
+    fn split_off(&mut self, before: ListPath, needle: ListIndex) -> Option<Self> {
+        if needle.0 >= before.index + 1 {
+            None
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+impl SplitLeaf<ListPath, ListRun> for ListLeaf {
+    fn split_off(&mut self, before: ListPath, needle: ListRun) -> Option<Self> {
+        if needle.0 >= before.run + self.0 {
+            None
+        } else if needle.0 > before.run {
+            let diff = needle.0 - before.run;
+            self.0 -= diff;
+            Some(ListLeaf(diff))
+        } else {
+            unreachable!()
         }
     }
 }

@@ -365,6 +365,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     let mut remaining_last_ok = true;
                     let mut removed_last_ok = true;
                     let mut removed_nodes = ArrayVec::<NP::Array>::new();
+                    let mut first = true;
                     while let Some(node) = cur_node {
                         let mut remaining_push = |node, last_ok| __push(&mut remaining_nodes, node, last_ok, c_height);
                         let mut removed_push = |node, last_ok| __push(&mut removed_nodes, node, last_ok, c_height);
@@ -372,7 +373,9 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         match __inner(node, before, range) {
                             NothingToDo(original) => {
                                 remaining_last_ok = remaining_push(original, remaining_last_ok);
-                                break;
+                                if !first {
+                                    break;
+                                }
                             }
                             FullyRemoved(node) => {
                                 removed_last_ok = removed_push(node, removed_last_ok);
@@ -387,6 +390,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         }
                         before = after;
                         cur_node = nodes_iter.next();
+                        first = false;
                     }
                     if let Some(node) = nodes_iter.next() {
                         __push(&mut remaining_nodes, node, remaining_last_ok, c_height);
@@ -425,8 +429,8 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                             remaining: Node::Leaf(leaf_val0),
                             removed: Node::Leaf(leaf_val1),
                         }
-                    } else {
-                        NothingToDo(Node::Leaf(leaf_val0))
+                    } else { // Note: range ends after `before` (see first line of __inner)
+                        FullyRemoved(Node::Leaf(leaf_val0))
                     }
                 }
             }
@@ -783,11 +787,15 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 mod tests {
     use ::test_help::*;
 
+    fn sum_n(n: usize) -> usize {
+        n*(n+1)/2
+    }
+
     #[test]
     fn iter() {
         let total = 768;
         let node: NodeRc<_> = (0..total).map(|i| ListLeaf(i + 1)).collect();
-        assert_eq!(node.info(), ListInfo { count: total, sum: total*(total + 1)/2 });
+        assert_eq!(node.info(), ListInfo { count: total, sum: sum_n(total) });
     }
 
     #[test]
@@ -797,11 +805,11 @@ mod tests {
         assert_eq!(node.height(), 0);
         for i in 2..17 {
             node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(i)));
-            assert_eq!(node.info(), ListInfo { count: i, sum: i * (i+1) / 2 });
+            assert_eq!(node.info(), ListInfo { count: i, sum: sum_n(i) });
             assert_eq!(node.height(), 1);
         }
         node = NodeRc::concat(node, NodeRc::from_leaf(ListLeaf(17)));
-        assert_eq!(node.info(), ListInfo { count: 17, sum: 17 * 18 / 2 });
+        assert_eq!(node.info(), ListInfo { count: 17, sum: sum_n(17) });
         assert_eq!(node.height(), 2);
     }
 
@@ -831,8 +839,8 @@ mod tests {
             node.visit_subseq::<ListPath, _, _>(PathRange { left: ListIndex(i+1), right: ListIndex(i+1) }, |leaf_ref| {
                 assert_eq!(leaf_ref.leaf, &ListLeaf(i));
                 assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
-                assert_eq!(leaf_ref.before, ListPath { index: i, run: i.wrapping_sub(1)*i/2 });
-                assert_eq!(leaf_ref.after, ListPath { index: i + 1, run: i*(i+1)/2 });
+                assert_eq!(leaf_ref.before, ListPath { index: i, run: if i == 0 { 0 } else { sum_n(i-1) } });
+                assert_eq!(leaf_ref.after, ListPath { index: i + 1, run: sum_n(i) });
                 sums.push(leaf_ref.after.run);
                 hit += 1;
             });
@@ -845,8 +853,8 @@ mod tests {
                 let val = leaf_ref.leaf.0;
                 println!("{}, val: {}", i, val);
                 assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: val });
-                assert_eq!(leaf_ref.before, ListRun(val.wrapping_sub(1)*val/2));
-                assert_eq!(leaf_ref.after, ListRun(val*(val+1)/2));
+                assert_eq!(leaf_ref.before, ListRun(if val == 0 { 0 } else { sum_n(val-1) }));
+                assert_eq!(leaf_ref.after, ListRun(sum_n(val)));
                 assert!(i <= leaf_ref.after.0);
                 assert!(leaf_ref.before.0 < i+1);
                 hit += 1;
@@ -873,7 +881,39 @@ mod tests {
 
     #[test]
     fn remove() {
-        // TODO
+        use super::{PathRange, RemoveResult};
+        let total = 279;
+        let cut_from = 27;
+        let cut_to = 100;
+        let node: NodeRc<_> = (0..total).map(|i| ListLeaf(i)).collect();
+        match node.remove_subseq::<ListPath, _>(PathRange { left: ListIndex(cut_from), right: ListIndex(cut_to) }) {
+            RemoveResult::RangeRemoved { remaining, removed } => {
+                let mut i = cut_from;
+                let sum_till_cut = sum_n(cut_from-1);
+                removed.visit_subseq::<ListPath, _, _>(PathRange { left: ListIndex(0), right: ListIndex(1000) }, |leaf_ref| {
+                    //println!("{}", leaf_ref.leaf.0);
+                    assert_eq!(leaf_ref.leaf, &ListLeaf(i));
+                    assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
+                    assert_eq!(leaf_ref.before, ListPath { index: i - cut_from, run: sum_n(i-1) - sum_till_cut });
+                    assert_eq!(leaf_ref.after, ListPath { index: i - cut_from + 1, run: sum_n(i) - sum_till_cut });
+                    i += 1;
+                });
+                assert_eq!(i, cut_to);
+                i = cut_to;
+                let cut_away = cut_to - cut_from;
+                let sum_cut_away = sum_n(cut_to - 1) - sum_n(cut_from - 1);
+                remaining.visit_subseq::<ListPath, _, _>(PathRange { left: ListIndex(cut_from + 1), right: ListIndex(1000) }, |leaf_ref| {
+                    println!("{}", leaf_ref.leaf.0);
+                    assert_eq!(leaf_ref.leaf, &ListLeaf(i));
+                    assert_eq!(leaf_ref.info, ListInfo { count: 1, sum: i });
+                    assert_eq!(leaf_ref.before, ListPath { index: i - cut_away, run: sum_n(i-1) - sum_cut_away });
+                    assert_eq!(leaf_ref.after, ListPath { index: i - cut_away + 1, run: sum_n(i) - sum_cut_away });
+                    i += 1;
+                });
+                assert_eq!(i, total);
+            }
+            _ => unreachable!(),
+        }
     }
 
     // TODO more tests
