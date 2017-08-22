@@ -240,7 +240,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     let mut cur_node = None;
                     while let Some(node) = node_iter.next() {
                         let after = before.extend(node.info());
-                        if range.left_outside(&after) {
+                        if range.starts_after(&after) {
                             before = after;
                         } else {
                             cur_node = Some(node);
@@ -249,7 +249,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     }
                     debug_assert!(cur_node.is_some());
                     while let Some(node) = cur_node {
-                        if range.right_outside(&before) {
+                        if range.ends_before(&before) {
                             break;
                         } else {
                             __inner(node, before, range, f);
@@ -276,7 +276,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 
         let before = PI::default();
         let after = before.extend(self.info());
-        if range.left_outside(&after) {
+        if range.starts_after(&after) {
             return;
         }
 
@@ -333,12 +333,12 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                   PI: PathInfo<L::Info>,
                   PS: SubOrd<PI> + Copy,
         {
-            if range.right_outside(&before) {
+            if range.ends_before(&before) {
                 return NothingToDo(node);
             } else {
                 let after = before.extend(node.info());
-                debug_assert!(!range.left_outside(&after));
-                if !range.left_outside(&before) && !range.right_outside(&after) {
+                debug_assert!(!range.starts_after(&after));
+                if !range.starts_after(&before) && !range.ends_before(&after) {
                     // before and after is inside range.
                     return FullyRemoved(node);
                 }
@@ -352,7 +352,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     let mut cur_node = None;
                     while let Some(node) = nodes_iter.next() {
                         let after = before.extend(node.info());
-                        if range.left_outside(&after) {
+                        if range.starts_after(&after) {
                             remaining_nodes.push(node);
                             before = after;
                         } else {
@@ -403,10 +403,10 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                     }
                 }
                 Node::Leaf(mut leaf_val0) => {
-                    if range.left_outside(&before) {
+                    if range.starts_after(&before) {
                         if let Some(mut leaf_val1) = leaf_val0.split_off(before, range.left) {
                             let after0 = before.extend(leaf_val0.info);
-                            if range.right_outside(&after0) {
+                            if range.ends_before(&after0) {
                                 if let Some(leaf_val2) = leaf_val1.split_off(after0, range.right) {
                                     let split = leaf_val0.merge_maybe_split(leaf_val2);
                                     assert!(split.is_none(), "Joining parts after removing a \
@@ -438,7 +438,7 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
 
         let before = PI::default();
         let after = before.extend(self.info());
-        if range.left_outside(&after) {
+        if range.starts_after(&after) {
             return NothingToDo(self);
         }
 
@@ -466,8 +466,8 @@ impl<PS: Copy> PathRange<PS> {
         self.left >= self.right
     }
 
-    /// Check whether `needle` is outside and left of `self`.
-    pub fn left_outside<I: SumInfo, PI: PathInfo<I>>(self, needle: &PI) -> bool
+    /// Check whether `needle` is out of range, to the left of `self`.
+    pub fn starts_after<I: SumInfo, PI: PathInfo<I>>(self, needle: &PI) -> bool
         where PS: SubOrd<PI>,
     {
         match self.left.sub_cmp(needle) {
@@ -476,8 +476,8 @@ impl<PS: Copy> PathRange<PS> {
         }
     }
 
-    /// Check whether `needle` is outside and right of `self`.
-    pub fn right_outside<I: SumInfo, PI: PathInfo<I>>(self, needle: &PI) -> bool
+    /// Check whether `needle` is out of range, to the right of `self`.
+    pub fn ends_before<I: SumInfo, PI: PathInfo<I>>(self, needle: &PI) -> bool
         where PS: SubOrd<PI>,
     {
         match self.right.sub_cmp(needle) {
