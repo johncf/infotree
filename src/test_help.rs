@@ -5,6 +5,7 @@ use traits::{SumInfo, Leaf, PathInfo, SplitLeaf, SubOrd};
 
 use std::cmp::{self, Ordering};
 
+#[cfg(test)]
 pub fn rand_usize(max: usize) -> usize {
     ::rand::random::<usize>() % max
 }

@@ -15,5 +15,5 @@ pub mod traits;
 #[cfg(test)]
 extern crate rand;
 
-#[cfg(test)]
-mod test_help;
+#[doc(hidden)]
+pub mod test_help;
