@@ -6,35 +6,10 @@ use std::cmp::{self, Ordering};
 use std::iter::FromIterator;
 use std::mem;
 
-mod links {
-    use traits::Leaf;
-    use super::Node;
+mod broken;
+mod links;
 
-    use arrayvec::{Array, ArrayVec};
-
-    use std::sync::Arc;
-    use std::rc::Rc;
-    use std::ops::Deref;
-
-    pub trait NodesPtr<L: Leaf>: Clone + Deref<Target=[Node<L, Self>]> {
-        type Array: Array<Item=Node<L, Self>>;
-
-        fn new(nodes: ArrayVec<Self::Array>) -> Self;
-        fn make_mut(this: &mut Self) -> &mut ArrayVec<Self::Array>;
-
-        fn max_size() -> usize {
-            <Self::Array as Array>::capacity()
-        }
-
-        fn min_size() -> usize {
-            Self::max_size()/2
-        }
-    }
-
-    def_nodes_ptr_rc!(Arc16, Arc, 16);
-    def_nodes_ptr_rc!(Rc16, Rc, 16);
-    def_nodes_ptr_box!(Box16, 16);
-}
+use self::broken::BrokenNode;
 
 pub use self::links::{NodesPtr, Arc16, Rc16, Box16};
 
@@ -290,43 +265,6 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
     {
         use self::RemoveResult::*;
 
-        fn __push<L, NP>(nodes: &mut ArrayVec<NP::Array>, newnode: Node<L, NP>, mut last_ok: bool, c_height: usize) -> bool
-            where L: Leaf, NP: NodesPtr<L>,
-        {
-            let is_ok_child = |n: &Node<L, NP>| n.height() == c_height && n.has_min_size();
-            debug_assert!(newnode.height() <= c_height);
-            last_ok = last_ok && is_ok_child(&newnode);
-            if last_ok || nodes.is_empty() {
-                nodes.push(newnode);
-            } else {
-                let node = nodes.pop().unwrap();
-                if newnode.height() == c_height || node.height() == c_height {
-                    let (node0, maybe_node1) = Node::maybe_concat(node, newnode);
-                    nodes.push(node0);
-                    if let Some(node1) = maybe_node1 {
-                        nodes.push(node1);
-                    }
-                    last_ok = true;
-                } else {
-                    let node = Node::concat(node, newnode);
-                    last_ok = is_ok_child(&node);
-                    nodes.push(node);
-                }
-            }
-            last_ok
-        }
-
-        fn __into_node<L, NP>(mut nodes: ArrayVec<NP::Array>) -> Node<L, NP>
-            where L: Leaf, NP: NodesPtr<L>,
-        {
-            debug_assert!(!nodes.is_empty());
-            if nodes.len() == 1 {
-                nodes.pop().unwrap()
-            } else {
-                Node::from_children(NP::new(nodes))
-            }
-        }
-
         fn __inner<L, NP, PI, PS>(node: Node<L, NP>, before: PI, range: PathRange<PS>) -> RemoveResult<L, NP>
             where L: SplitLeaf<PI, PS>,
                   NP: NodesPtr<L>,
@@ -345,15 +283,15 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
             }
 
             match node {
-                Node::Internal(InternalT { mut nodes, height, .. }) => {
+                Node::Internal(InternalT { mut nodes, .. }) => {
                     let mut nodes_iter = NP::make_mut(&mut nodes).drain(..);
                     let mut before = before;
-                    let mut remaining_nodes = ArrayVec::<NP::Array>::new();
+                    let mut remaining_node = BrokenNode::new();
                     let mut cur_node = None;
                     while let Some(node) = nodes_iter.next() {
                         let after = before.extend(node.info());
                         if range.starts_after(&after) {
-                            remaining_nodes.push(node);
+                            remaining_node = remaining_node.push_child(node);
                             before = after;
                         } else {
                             cur_node = Some(node);
@@ -361,48 +299,42 @@ impl<L: Leaf, NP: NodesPtr<L>> Node<L, NP> {
                         }
                     }
                     debug_assert!(cur_node.is_some());
-                    let c_height = height - 1;
-                    let mut remaining_last_ok = true;
-                    let mut removed_last_ok = true;
-                    let mut removed_nodes = ArrayVec::<NP::Array>::new();
+                    let mut removed_node = BrokenNode::new();
                     let mut first = true;
                     while let Some(node) = cur_node {
-                        let mut remaining_push = |node, last_ok| __push(&mut remaining_nodes, node, last_ok, c_height);
-                        let mut removed_push = |node, last_ok| __push(&mut removed_nodes, node, last_ok, c_height);
                         let after = before.extend(node.info());
                         match __inner(node, before, range) {
                             NothingToDo(original) => {
-                                remaining_last_ok = remaining_push(original, remaining_last_ok);
+                                remaining_node = remaining_node.push_child(original);
                                 if !first {
                                     break;
                                 }
                             }
                             FullyRemoved(node) => {
-                                removed_last_ok = removed_push(node, removed_last_ok);
+                                removed_node = removed_node.push_child(node);
                             }
                             RangeRemoved { remaining, removed } => {
                                 // Note1: remaining and/or removed may not satisfy has_min_size
                                 // Note2: this will happen only at the ends (i.e. at most twice)
                                 // TODO debug_assert this condition
-                                remaining_last_ok = remaining_push(remaining, remaining_last_ok);
-                                removed_last_ok = removed_push(removed, removed_last_ok);
+                                remaining_node = remaining_node.push_child(remaining);
+                                removed_node = removed_node.push_child(removed);
                             }
                         }
                         before = after;
                         cur_node = nodes_iter.next();
                         first = false;
                     }
-                    if let Some(node) = nodes_iter.next() {
-                        __push(&mut remaining_nodes, node, remaining_last_ok, c_height);
-                        remaining_nodes.extend(nodes_iter);
+                    while let Some(node) = nodes_iter.next() {
+                        remaining_node = remaining_node.push_child(node);
                     }
-                    match (remaining_nodes.is_empty(), removed_nodes.is_empty()) {
+                    match (remaining_node.is_empty(), removed_node.is_empty()) {
                         (true, true) => unreachable!(),
-                        (false, true) => NothingToDo(__into_node(remaining_nodes)),
-                        (true, false) => FullyRemoved(__into_node(removed_nodes)),
+                        (false, true) => NothingToDo(remaining_node.into_node()),
+                        (true, false) => FullyRemoved(removed_node.into_node()),
                         (false, false) => RangeRemoved {
-                            remaining: __into_node(remaining_nodes),
-                            removed: __into_node(removed_nodes),
+                            remaining: remaining_node.into_node(),
+                            removed: removed_node.into_node(),
                         },
                     }
                 }
