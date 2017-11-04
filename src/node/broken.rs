@@ -58,7 +58,7 @@ impl<L, NP> BrokenNode<L, NP> where L: Leaf, NP: NodesPtr<L> {
             Empty => Single(newnode),
             Single(child) => Self::merge_two(child, newnode),
             Multi { mut children, height } => {
-                if height < newnode.height() {
+                if newnode.height() > height {
                     debug_assert_eq!(children.len(), 2, "This must be a bug!");
                     let parent = Node::from_children(NP::new(children));
                     Self::merge_two(parent, newnode)
