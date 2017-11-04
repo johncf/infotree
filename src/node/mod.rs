@@ -500,18 +500,18 @@ fn insert_maybe_split<L: Leaf, NP: NodesPtr<L>>(
     newnode: Node<L, NP>
 ) -> Option<NP> {
     debug_assert!(newnode.has_min_size());
+    debug_assert!(idx <= nodes.len());
 
     if nodes.len() < NP::max_size() {
         nodes.insert(idx, newnode);
         None
     } else {
         let extra;
-        if idx == 16 {
-            extra = newnode;
-        } else {
-            debug_assert!(idx < 16);
+        if idx < NP::max_size() {
             extra = nodes.pop().unwrap();
             nodes.insert(idx, newnode);
+        } else {
+            extra = newnode;
         }
         let n_left = balanced_split::<L, NP>(NP::max_size() + 1).0;
         let mut right: ArrayVec<_> = nodes.drain(n_left..).collect();
